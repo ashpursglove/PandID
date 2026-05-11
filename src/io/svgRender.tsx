@@ -54,7 +54,11 @@ export function renderDrawingSvg({ nodes, edges, meta }: RenderSvgInput): string
 export function wrapSvg(inner: string): string {
   // Width/height as 100% lets the in-app preview fill its container while the
   // PDF exporter overrides with explicit mm dimensions in its embed call, so
-  // both consumers behave correctly off the same string.
+  // both consumers behave correctly off the same string. The selection
+  // highlight CSS lives in the global stylesheet (index.css) rather than
+  // inside the SVG — svg2pdf can't handle filters/mm-units/attribute
+  // selectors inside <style>, and the highlight is purely a live-UI concern
+  // anyway.
   return `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 ${PAGE_W} ${PAGE_H}" preserveAspectRatio="xMidYMid meet" style="background:white">
 ${inner}
 </svg>`;
@@ -193,7 +197,26 @@ export interface DiagramAreaOptions {
   bounds?: { minX: number; minY: number; maxX: number; maxY: number };
   /** Inner padding inside the drawing region, in mm. */
   padding?: number;
+  /** Override just the *top* padding (the rest stays at `padding`). Used by
+   *  drawing pages that draw a title strip across the top of the body. */
+  topPadding?: number;
+  /** Per-element colour overrides, keyed by node.id / edge.id. Anything not
+   *  present uses the default print colour. */
+  colorOverrides?: Record<string, string>;
+  /** Per-edge line-thickness multiplier (1.0 = default for the line type).
+   *  Only applied to pipes — components have a single drawn outline so a
+   *  user-tweakable width doesn't make sense there. */
+  widthOverrides?: Record<string, number>;
 }
+
+const DEFAULT_INK = "#000";
+const TAG_INK = "#0f172a";
+/** Stroke-width multiplier translating the editor's CSS-pixel widths into
+ *  drawing-mm. Tuned to match the heavy line work expected on printed
+ *  engineering drawings; the floor keeps even the thinnest line type
+ *  (utility / signal) visible at small scales. */
+const STROKE_MM_FACTOR = 0.4;
+const STROKE_MM_FLOOR = 0.55;
 
 export function renderDiagramArea(
   nodes: DiagramNode[],
@@ -201,10 +224,13 @@ export function renderDiagramArea(
   options: DiagramAreaOptions = {},
 ): string {
   const padding = options.padding ?? 4;
+  const topPad = options.topPadding ?? padding;
+  const overrides = options.colorOverrides ?? {};
+  const widthOverrides = options.widthOverrides ?? {};
   const innerX = DRAW_X + padding;
-  const innerY = DRAW_Y + padding;
+  const innerY = DRAW_Y + topPad;
   const innerW = DRAW_W - 2 * padding;
-  const innerH = DRAW_H - 2 * padding;
+  const innerH = DRAW_H - topPad - padding;
 
   if (nodes.length === 0) {
     return `<g>${textAt(innerX + innerW / 2, innerY + innerH / 2, "Drag P&ID symbols onto the canvas to start.", 4, "middle")}</g>`;
@@ -227,10 +253,17 @@ export function renderDiagramArea(
   // `vector-effect="non-scaling-stroke"` so they stay legible regardless of
   // diagram size.
   const innerEdges = edges
-    .map((edge) => renderEdgeWorld(edge, nodesById))
+    .map((edge) =>
+      renderEdgeWorld(
+        edge,
+        nodesById,
+        overrides[edge.id],
+        widthOverrides[edge.id],
+      ),
+    )
     .filter(Boolean);
   const innerNodes = nodes
-    .map((n) => renderNodeWorld(n))
+    .map((n) => renderNodeWorld(n, overrides[n.id]))
     .filter(Boolean);
 
   // Tags and edge labels render OUTSIDE the scaling group, in drawing-mm
@@ -239,11 +272,13 @@ export function renderDiagramArea(
   // component itself is rotated — matching the editor where the label sits
   // on the unrotated outer container.
   const tagMarkup = nodes
-    .map((n) => renderNodeTag(n, scale, offsetX, offsetY))
+    .map((n) => renderNodeTag(n, scale, offsetX, offsetY, overrides[n.id]))
     .filter(Boolean)
     .join("");
   const edgeLabels = edges
-    .map((e) => renderEdgeLabel(e, nodesById, scale, offsetX, offsetY))
+    .map((e) =>
+      renderEdgeLabel(e, nodesById, scale, offsetX, offsetY, overrides[e.id]),
+    )
     .filter(Boolean)
     .join("");
 
@@ -256,27 +291,33 @@ export function renderDiagramArea(
   </g>`;
 }
 
-function renderNodeWorld(node: DiagramNode): string {
+function renderNodeWorld(node: DiagramNode, override?: string): string {
   const symbol = getSymbol(node.data.symbolType);
   if (!symbol) return "";
 
   const { Icon, size } = symbol;
   const rotation = node.data.rotation ?? 0;
+  const ink = override ?? TAG_INK;
 
   const innerSvg = styleSymbolForPrint(
-    renderToStaticMarkup(
-      <Icon width={size.width} height={size.height} />,
-    ),
+    renderToStaticMarkup(<Icon width={size.width} height={size.height} />),
+    ink,
   );
+
+  // Hit-area rect lives inside the rotated frame so it tracks the visible
+  // symbol bounds. `pointer-events="all"` ensures clicks register even on
+  // interior whitespace (most symbols are pure outlines with transparent
+  // interior, which otherwise wouldn't catch clicks).
+  const hitArea = `<rect x="0" y="0" width="${size.width}" height="${size.height}" fill="transparent" pointer-events="all" />`;
 
   // Only the SVG content is rotated — exactly like SymbolNode in the editor,
   // where rotation lives on the inner icon wrapper and the outer container
   // (which carries the label) stays axis-aligned.
-  return `<g transform="translate(${node.position.x.toFixed(3)} ${node.position.y.toFixed(3)}) ${
+  return `<g data-element-id="${escapeText(node.id)}" data-element-kind="node" transform="translate(${node.position.x.toFixed(3)} ${node.position.y.toFixed(3)}) ${
     rotation
       ? `rotate(${rotation} ${(size.width / 2).toFixed(3)} ${(size.height / 2).toFixed(3)})`
       : ""
-  }">${innerSvg}</g>`;
+  }">${hitArea}${innerSvg}</g>`;
 }
 
 function renderNodeTag(
@@ -284,6 +325,7 @@ function renderNodeTag(
   scale: number,
   offsetX: number,
   offsetY: number,
+  override?: string,
 ): string {
   const symbol = getSymbol(node.data.symbolType);
   if (!symbol) return "";
@@ -295,24 +337,30 @@ function renderNodeTag(
   const cy = (node.position.y + size.height) * scale + offsetY;
   const fontSize = Math.max(2.6, Math.min(4.5, size.height * scale * 0.18));
   const ty = cy + fontSize + 0.4;
-  return `<text x="${cx.toFixed(3)}" y="${ty.toFixed(3)}" text-anchor="middle" font-size="${fontSize.toFixed(2)}" font-family="Helvetica, Arial, sans-serif" fill="#0f172a">${escapeText(tag)}</text>`;
+  const fill = override ?? TAG_INK;
+  return `<text x="${cx.toFixed(3)}" y="${ty.toFixed(3)}" text-anchor="middle" font-size="${fontSize.toFixed(2)}" font-family="Helvetica, Arial, sans-serif" fill="${fill}" pointer-events="none">${escapeText(tag)}</text>`;
 }
 
 /**
  * Strip Tailwind colour classes from React-rendered symbol SVGs and bake in a
- * dark stroke colour so the symbol stays sharp and legible on a white drawing
- * sheet. The runtime CSS that powers the editor's dark theme would otherwise
- * leak into static renders via `class="text-zinc-200"`, drowning the strokes.
+ * concrete stroke colour so the symbol stays sharp and legible on a white
+ * drawing sheet. The runtime CSS that powers the editor's dark theme would
+ * otherwise leak into static renders via `class="text-zinc-200"`, drowning
+ * the strokes. Also marks every stroked element with `pid-stroke` so a
+ * selection highlight rule can quickly retarget them via CSS.
  */
-function styleSymbolForPrint(svg: string): string {
+function styleSymbolForPrint(svg: string, ink: string): string {
   return svg
     .replace(/\sclass="[^"]*"/g, "")
-    .replace(/currentColor/g, "#0f172a");
+    .replace(/currentColor/g, ink)
+    .replace(/<(path|line|circle|ellipse|polyline|polygon|rect)\s/g, '<$1 class="pid-stroke" ');
 }
 
 function renderEdgeWorld(
   edge: DiagramEdge,
   nodesById: Map<string, DiagramNode>,
+  override?: string,
+  widthMultiplier?: number,
 ): string {
   const source = nodesById.get(edge.source);
   const target = nodesById.get(edge.target);
@@ -321,9 +369,13 @@ function renderEdgeWorld(
   const s = portWorldPosition(source, edge.sourceHandle);
   const t = portWorldPosition(target, edge.targetHandle);
 
-  // World-space path generation. borderRadius matches the editor's PipeEdge
-  // (see Canvas/PipeEdge.tsx) so the elbows are identical between the live
-  // editor view and the rendered drawing.
+  // Cap the elbow radius when source/target are close. The editor's smooth
+  // step path uses radius 8 — but on a very short segment that radius gets
+  // squeezed, which (combined with non-scaling-stroke + small parent scale)
+  // produces visibly thinner / broken rendering at the elbow. Scaling the
+  // radius down keeps the geometry well-formed for close components.
+  const dist = Math.hypot(t.x - s.x, t.y - s.y);
+  const borderRadius = Math.max(1, Math.min(8, dist * 0.25));
   const [path] = getSmoothStepPath({
     sourceX: s.x,
     sourceY: s.y,
@@ -331,33 +383,42 @@ function renderEdgeWorld(
     targetY: t.y,
     sourcePosition: s.position,
     targetPosition: t.position,
-    borderRadius: 8,
+    borderRadius,
   });
 
   const lineType = edge.data?.lineType ?? "process";
   const style = LINE_STYLES[lineType];
+  const stroke = override ?? DEFAULT_INK;
+  const widthMult = widthMultiplier ?? 1;
 
   // With vector-effect="non-scaling-stroke" both stroke-width and
   // stroke-dasharray are interpreted in the SVG root's user units (mm here),
   // so we express them directly in drawing-mm rather than world units.
-  const baseW = style.strokeWidth * 0.18;
+  const baseW =
+    Math.max(STROKE_MM_FLOOR, style.strokeWidth * STROKE_MM_FACTOR) *
+    widthMult;
   const dash = style.strokeDasharray
     ? style.strokeDasharray
         .split(/\s+/)
-        .map((n) => (Number.parseFloat(n) * 0.18).toFixed(2))
+        .map((n) => (Number.parseFloat(n) * 0.22 * widthMult).toFixed(2))
         .join(" ")
     : undefined;
 
-  const primary = `<path d="${path}" fill="none" stroke="#0f172a" stroke-width="${baseW.toFixed(3)}" ${
+  // Wider, transparent hit area for easy clicking. Drawn *under* the visible
+  // path inside the same data-element group so a click anywhere along the
+  // pipe selects it.
+  const hit = `<path d="${path}" fill="none" stroke="transparent" stroke-width="3.5" vector-effect="non-scaling-stroke" pointer-events="stroke" />`;
+
+  const primary = `<path class="pid-stroke" d="${path}" fill="none" stroke="${stroke}" stroke-width="${baseW.toFixed(3)}" ${
     dash ? `stroke-dasharray="${dash}"` : ""
-  } vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round" />`;
+  } vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round" pointer-events="none" />`;
 
   const overlay =
     style.pattern === "hash"
-      ? `<path d="${path}" fill="none" stroke="#0f172a" stroke-width="${(baseW + 0.7).toFixed(3)}" stroke-dasharray="0.2 2" vector-effect="non-scaling-stroke" />`
+      ? `<path class="pid-stroke" d="${path}" fill="none" stroke="${stroke}" stroke-width="${(baseW + 0.7).toFixed(3)}" stroke-dasharray="0.2 2" vector-effect="non-scaling-stroke" pointer-events="none" />`
       : "";
 
-  return primary + overlay;
+  return `<g data-element-id="${escapeText(edge.id)}" data-element-kind="edge">${hit}${primary}${overlay}</g>`;
 }
 
 function renderEdgeLabel(
@@ -366,6 +427,7 @@ function renderEdgeLabel(
   scale: number,
   offsetX: number,
   offsetY: number,
+  override?: string,
 ): string {
   const tag = edge.data?.tag;
   if (!tag) return "";
@@ -376,7 +438,8 @@ function renderEdgeLabel(
   const t = portWorldPosition(target, edge.targetHandle);
   const mx = ((s.x + t.x) / 2) * scale + offsetX;
   const my = ((s.y + t.y) / 2) * scale + offsetY - 1;
-  return textAt(mx, my, tag, 2.4, "middle");
+  const fill = override ?? TAG_INK;
+  return `<text x="${mx}" y="${my}" font-size="2.4" font-family="Helvetica, Arial, sans-serif" text-anchor="middle" fill="${fill}" pointer-events="none">${escapeText(tag)}</text>`;
 }
 
 /* ----- SVG primitives --------------------------------------------------- */

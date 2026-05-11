@@ -4,6 +4,7 @@ import {
   FileText,
   FolderOpen,
   Save,
+  FilePlus2,
   FileDown,
   Sheet,
   Undo2,
@@ -133,6 +134,11 @@ export function Toolbar() {
           onClick={openProject}
         />
         <ToolbarButton icon={Save} title="Save (Ctrl+S)" onClick={save} />
+        <ToolbarButton
+          icon={FilePlus2}
+          title="Save As… (Ctrl+Shift+S)"
+          onClick={saveAs}
+        />
         <RecentMenu onOpen={openRecent} />
         <ToolbarButton icon={FileDown} title="Export PDF" onClick={exportPdf} />
         <ToolbarButton

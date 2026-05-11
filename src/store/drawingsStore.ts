@@ -81,6 +81,15 @@ export interface DrawingPage {
   analysis?: AnalysisSnapshot;
   bom?: BomConfig;
   annotations: Annotation[];
+  /** Per-page colour overrides for individual diagram elements, keyed by
+   *  node.id or edge.id. Anything not present falls back to the default print
+   *  colour. Lets users colour-code a sheet (e.g. red for the hot-water
+   *  loop) without touching the live diagram. */
+  colorOverrides?: Record<string, string>;
+  /** Per-edge line-thickness multiplier (1.0 = default), keyed by edge.id.
+   *  Lets users emphasise a critical path on a printed drawing without
+   *  changing the live diagram. */
+  widthOverrides?: Record<string, number>;
 }
 
 interface DrawingsState {
@@ -103,6 +112,17 @@ interface DrawingsState {
   addAnnotation: (pageId: string, ann: Annotation) => void;
   updateAnnotation: (pageId: string, annId: string, patch: Partial<Annotation>) => void;
   removeAnnotation: (pageId: string, annId: string) => void;
+
+  /* ----- per-page colour overrides ----- */
+  /** Set `color = null` to clear the override and return the element to the
+   *  default print colour. */
+  setColorOverride: (pageId: string, elementId: string, color: string | null) => void;
+  clearAllColorOverrides: (pageId: string) => void;
+
+  /* ----- per-page line-width overrides (edges only) ----- */
+  /** Set `multiplier = null` to clear and return to the default thickness. */
+  setWidthOverride: (pageId: string, edgeId: string, multiplier: number | null) => void;
+  clearAllWidthOverrides: (pageId: string) => void;
 
   /* ----- logo ----- */
   setCompanyLogo: (logo: string | null) => void;
@@ -224,6 +244,48 @@ export const useDrawingsStore = create<DrawingsState>((set) => ({
         p.id === pageId
           ? { ...p, annotations: p.annotations.filter((a) => a.id !== annId) }
           : p,
+      ),
+    })),
+
+  setColorOverride: (pageId, elementId, color) =>
+    set((s) => ({
+      pages: s.pages.map((p) => {
+        if (p.id !== pageId) return p;
+        const next = { ...(p.colorOverrides ?? {}) };
+        if (color == null) {
+          delete next[elementId];
+        } else {
+          next[elementId] = color;
+        }
+        return { ...p, colorOverrides: next };
+      }),
+    })),
+
+  clearAllColorOverrides: (pageId) =>
+    set((s) => ({
+      pages: s.pages.map((p) =>
+        p.id === pageId ? { ...p, colorOverrides: {} } : p,
+      ),
+    })),
+
+  setWidthOverride: (pageId, edgeId, multiplier) =>
+    set((s) => ({
+      pages: s.pages.map((p) => {
+        if (p.id !== pageId) return p;
+        const next = { ...(p.widthOverrides ?? {}) };
+        if (multiplier == null) {
+          delete next[edgeId];
+        } else {
+          next[edgeId] = multiplier;
+        }
+        return { ...p, widthOverrides: next };
+      }),
+    })),
+
+  clearAllWidthOverrides: (pageId) =>
+    set((s) => ({
+      pages: s.pages.map((p) =>
+        p.id === pageId ? { ...p, widthOverrides: {} } : p,
       ),
     })),
 

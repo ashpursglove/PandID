@@ -2,9 +2,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Maximize2,
   MinusCircle,
+  Palette,
   PlusCircle,
+  RotateCcw,
   Sparkles,
   Trash2,
+  X,
   type LucideIcon,
 } from "lucide-react";
 
@@ -19,6 +22,27 @@ import {
 import { renderDrawingPage } from "@/io/drawingsRender";
 import { PAGE_H, PAGE_W } from "@/io/svgRender";
 import { cn } from "@/lib/utils";
+
+/* ----- element selection (pipes / components in diagram pages) --------- */
+
+interface SelectedElement {
+  id: string;
+  kind: "node" | "edge";
+}
+
+const COLOR_PALETTE: { label: string; value: string }[] = [
+  { label: "Black", value: "#000000" },
+  { label: "Slate", value: "#334155" },
+  { label: "Red", value: "#dc2626" },
+  { label: "Orange", value: "#ea580c" },
+  { label: "Amber", value: "#d97706" },
+  { label: "Green", value: "#16a34a" },
+  { label: "Teal", value: "#0d9488" },
+  { label: "Sky", value: "#0284c7" },
+  { label: "Blue", value: "#2563eb" },
+  { label: "Purple", value: "#7c3aed" },
+  { label: "Pink", value: "#db2777" },
+];
 
 interface Props {
   page: DrawingPage;
@@ -93,12 +117,32 @@ export function PagePreview({ page, pageNumber, totalPages }: Props) {
   const addAnnotation = useDrawingsStore((s) => s.addAnnotation);
   const updateAnnotation = useDrawingsStore((s) => s.updateAnnotation);
   const removeAnnotation = useDrawingsStore((s) => s.removeAnnotation);
+  const setColorOverride = useDrawingsStore((s) => s.setColorOverride);
+  const clearAllColorOverrides = useDrawingsStore(
+    (s) => s.clearAllColorOverrides,
+  );
+  const setWidthOverride = useDrawingsStore((s) => s.setWidthOverride);
+  const clearAllWidthOverrides = useDrawingsStore(
+    (s) => s.clearAllWidthOverrides,
+  );
 
   const [tool, setTool] = useState<ToolMode>("select");
   const [arrowDraft, setArrowDraft] = useState<{ x: number; y: number } | null>(
     null,
   );
   const [selectedAnnId, setSelectedAnnId] = useState<string | null>(null);
+  const [selectedElement, setSelectedElement] =
+    useState<SelectedElement | null>(null);
+
+  // Only diagram pages render selectable nodes/edges — analysis pages have
+  // their own (read-only) styling, BOM pages are pure text, etc.
+  const elementSelectable = page.type === "diagram";
+
+  // Clear any stale element selection whenever the visible page or page type
+  // changes, so leftover selection state can't bleed across sheets.
+  useEffect(() => {
+    setSelectedElement(null);
+  }, [page.id, page.type]);
 
   // Zoom & pan: pixel-space transform applied to the page wrapper with
   // transform-origin at the top-left so the inverse math stays trivial.
@@ -243,6 +287,66 @@ export function PagePreview({ page, pageNumber, totalPages }: Props) {
     }
   }
 
+  // --- click-to-select diagram elements (native delegation on base SVG) ---
+  //
+  // The base SVG is rendered via dangerouslySetInnerHTML, so its inner
+  // elements aren't managed by React. We attach a *native* click listener
+  // directly to the wrapper so the event reliably fires no matter how the
+  // overlay above it routes events. We walk up from event.target to find a
+  // [data-element-id] ancestor, which `renderDiagramArea` tags on every
+  // selectable pipe and component.
+  const baseSvgWrapperRef = useRef<HTMLDivElement>(null);
+  // Refs let the listener see the latest mode/state without re-binding the
+  // event each render.
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
+  const elementSelectableRef = useRef(elementSelectable);
+  elementSelectableRef.current = elementSelectable;
+
+  useEffect(() => {
+    const root = baseSvgWrapperRef.current;
+    if (!root) return;
+    function onClick(ev: MouseEvent) {
+      if (toolRef.current !== "select" || !elementSelectableRef.current) return;
+      const target = ev.target as Element | null;
+      if (!target) return;
+      const el = target.closest("[data-element-id]") as SVGElement | null;
+      if (el) {
+        ev.stopPropagation();
+        setSelectedElement({
+          id: el.getAttribute("data-element-id")!,
+          kind:
+            (el.getAttribute("data-element-kind") as "node" | "edge") ??
+            "node",
+        });
+        setSelectedAnnId(null);
+      } else {
+        setSelectedElement(null);
+        setSelectedAnnId(null);
+      }
+    }
+    root.addEventListener("click", onClick);
+    return () => root.removeEventListener("click", onClick);
+  }, []);
+
+  // Reflect `selectedElement` onto the rendered base-SVG by toggling
+  // `data-selected="true"` on the matching <g>. CSS embedded in the wrapped
+  // SVG handles the visual highlight, so we never rebuild the SVG string
+  // when selection changes — keeps interaction snappy on large diagrams.
+  useEffect(() => {
+    const root = baseSvgWrapperRef.current;
+    if (!root) return;
+    root.querySelectorAll("[data-selected]").forEach((n) => {
+      (n as SVGElement).removeAttribute("data-selected");
+    });
+    if (selectedElement) {
+      const el = root.querySelector(
+        `[data-element-id="${cssEscape(selectedElement.id)}"]`,
+      );
+      if (el) (el as SVGElement).setAttribute("data-selected", "true");
+    }
+  }, [selectedElement, baseSvg]);
+
   // --- annotation drag-to-reposition ---
   const dragState = useRef<{
     annId: string;
@@ -322,6 +426,7 @@ export function PagePreview({ page, pageNumber, totalPages }: Props) {
         setTool("select");
         setArrowDraft(null);
         setSelectedAnnId(null);
+        setSelectedElement(null);
       } else if (e.key === "0" && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         zoomAtViewportCenter(1, true);
@@ -410,6 +515,25 @@ export function PagePreview({ page, pageNumber, totalPages }: Props) {
     }
   }
 
+  const currentOverride =
+    selectedElement && page.colorOverrides
+      ? page.colorOverrides[selectedElement.id]
+      : undefined;
+  const currentWidth =
+    selectedElement && page.widthOverrides
+      ? page.widthOverrides[selectedElement.id]
+      : undefined;
+  const selectedLabel = useMemo(() => {
+    if (!selectedElement) return "";
+    // Diagram pages render the *frozen* snapshot, so we resolve labels from
+    // it; if that's missing (e.g. element was removed from the live diagram
+    // after capture) we fall back to live state and finally to a generic
+    // label so a stale selection still reads sensibly.
+    const nodes = page.diagram?.nodes ?? liveNodes;
+    const edges = page.diagram?.edges ?? liveEdges;
+    return describeElement(selectedElement, nodes, edges);
+  }, [selectedElement, page.diagram, liveNodes, liveEdges]);
+
   return (
     <div className="flex h-full flex-col bg-zinc-950">
       <Toolbar
@@ -429,6 +553,36 @@ export function PagePreview({ page, pageNumber, totalPages }: Props) {
         }
         onClearSelection={() => setSelectedAnnId(null)}
       />
+
+      {/* Floating style bar appears whenever a diagram element is selected.
+          Kept above the page so it never gets clipped by zooming/panning. */}
+      {selectedElement && elementSelectable && (
+        <StylePanel
+          label={selectedLabel}
+          kind={selectedElement.kind}
+          currentColor={currentOverride}
+          currentWidth={currentWidth}
+          onPickColor={(c) =>
+            setColorOverride(page.id, selectedElement.id, c)
+          }
+          onResetColor={() =>
+            setColorOverride(page.id, selectedElement.id, null)
+          }
+          onPickWidth={(m) =>
+            setWidthOverride(page.id, selectedElement.id, m)
+          }
+          onResetWidth={() =>
+            setWidthOverride(page.id, selectedElement.id, null)
+          }
+          onDeselect={() => setSelectedElement(null)}
+          colorOverrideCount={Object.keys(page.colorOverrides ?? {}).length}
+          widthOverrideCount={Object.keys(page.widthOverrides ?? {}).length}
+          onClearAll={() => {
+            clearAllColorOverrides(page.id);
+            clearAllWidthOverrides(page.id);
+          }}
+        />
+      )}
 
       <div
         ref={viewportRef}
@@ -451,8 +605,19 @@ export function PagePreview({ page, pageNumber, totalPages }: Props) {
             willChange: "transform",
           }}
         >
+          {/*
+            In select mode on a diagram page the base SVG receives clicks so
+            our native delegated handler can find the [data-element-id]
+            target. In every other mode (text/note/arrow annotations) the
+            overlay captures clicks instead.
+          */}
           <div
-            className="absolute inset-0 pointer-events-none"
+            ref={baseSvgWrapperRef}
+            className="absolute inset-0"
+            style={{
+              pointerEvents:
+                tool === "select" && elementSelectable ? "auto" : "none",
+            }}
             dangerouslySetInnerHTML={{ __html: baseSvg }}
           />
           <svg
@@ -463,10 +628,22 @@ export function PagePreview({ page, pageNumber, totalPages }: Props) {
             )}
             viewBox={`0 0 ${PAGE_W} ${PAGE_H}`}
             preserveAspectRatio="xMidYMid meet"
+            // In select-mode on a diagram page the overlay must be fully
+            // transparent to pointer events so element clicks reach the
+            // base SVG underneath. Annotations re-enable pointer events on
+            // themselves via `pointerEvents: "auto"` (see AnnotationLayer)
+            // so they stay clickable. In every other mode the overlay is
+            // active and the capture rect collects clicks for annotation
+            // placement.
+            style={{
+              pointerEvents:
+                tool === "select" && elementSelectable ? "none" : "auto",
+            }}
           >
             {/* Always-present transparent capture rect — guarantees the SVG
                 gets clicks anywhere on the page, not just over painted
-                children. */}
+                children. In select mode on a diagram page we let it pass
+                through to the base SVG so element-clicks can register. */}
             <rect
               x={0}
               y={0}
@@ -474,7 +651,10 @@ export function PagePreview({ page, pageNumber, totalPages }: Props) {
               height={PAGE_H}
               fill="transparent"
               onClick={onCaptureClick}
-              style={{ pointerEvents: "all" }}
+              style={{
+                pointerEvents:
+                  tool === "select" && elementSelectable ? "none" : "all",
+              }}
             />
 
             {arrowDraft && (
@@ -591,7 +771,7 @@ function Toolbar({
         </div>
         <div className="flex items-center gap-1 text-[10px] text-zinc-500">
           <Sparkles size={11} className="text-amber-400" />
-          Scroll to zoom · middle-drag to pan · click annotation to select
+          Scroll to zoom · middle-drag to pan · click pipe / component to recolour
         </div>
       </div>
     </div>
@@ -620,7 +800,7 @@ function AnnotationLayer({
 
   if (ann.kind === "text") {
     return (
-      <g style={{ cursor: "move" }}>
+      <g style={{ cursor: "move", pointerEvents: "auto" }}>
         <text
           x={ann.x}
           y={ann.y}
@@ -656,7 +836,7 @@ function AnnotationLayer({
     const padding = 1.5;
     return (
       <g
-        style={{ cursor: "move" }}
+        style={{ cursor: "move", pointerEvents: "auto" }}
         onMouseDown={onMouseDown}
         onDoubleClick={onDoubleClick}
       >
@@ -693,7 +873,7 @@ function AnnotationLayer({
   const y2 = ann.y2 ?? ann.y;
   return (
     <g
-      style={{ cursor: "move" }}
+      style={{ cursor: "move", pointerEvents: "auto" }}
       onMouseDown={onMouseDown}
       onDoubleClick={onDoubleClick}
     >
@@ -789,5 +969,193 @@ function ZoomBtn({
     >
       <Icon size={13} />
     </button>
+  );
+}
+
+/* ----------------------- element-selection helpers ----------------------- */
+
+/** Quote any character that has special meaning in a CSS attribute selector
+ *  so we can safely use arbitrary node/edge ids inside `querySelector`. */
+function cssEscape(s: string): string {
+  if (typeof (globalThis as { CSS?: { escape?: (s: string) => string } }).CSS
+    ?.escape === "function") {
+    return (globalThis as { CSS: { escape: (s: string) => string } }).CSS.escape(s);
+  }
+  return s.replace(/["\\]/g, "\\$&");
+}
+
+function describeElement(
+  sel: SelectedElement,
+  nodes: ReturnType<typeof useDiagramStore.getState>["nodes"],
+  edges: ReturnType<typeof useDiagramStore.getState>["edges"],
+): string {
+  if (sel.kind === "node") {
+    const n = nodes.find((x) => x.id === sel.id);
+    if (!n) return "Component";
+    const tag = n.data.tag || n.data.label || sel.id;
+    return `Component · ${tag}`;
+  }
+  const e = edges.find((x) => x.id === sel.id);
+  if (!e) return "Pipe";
+  const src = nodes.find((x) => x.id === e.source);
+  const dst = nodes.find((x) => x.id === e.target);
+  const srcLabel = src?.data.tag || src?.data.label || e.source;
+  const dstLabel = dst?.data.tag || dst?.data.label || e.target;
+  const lineType = e.data?.lineType ?? "process";
+  return `${prettyLineType(lineType)} · ${srcLabel} → ${dstLabel}`;
+}
+
+function prettyLineType(t: string): string {
+  switch (t) {
+    case "process":
+      return "Process pipe";
+    case "utility":
+      return "Utility pipe";
+    case "pneumatic":
+      return "Pneumatic signal";
+    case "electric":
+      return "Electric signal";
+    default:
+      return "Pipe";
+  }
+}
+
+const WIDTH_PRESETS: { label: string; value: number }[] = [
+  { label: "Thin", value: 0.6 },
+  { label: "Normal", value: 1.0 },
+  { label: "Bold", value: 1.5 },
+  { label: "Heavy", value: 2.0 },
+  { label: "Extra", value: 2.6 },
+];
+
+function StylePanel({
+  label,
+  kind,
+  currentColor,
+  currentWidth,
+  onPickColor,
+  onResetColor,
+  onPickWidth,
+  onResetWidth,
+  onDeselect,
+  colorOverrideCount,
+  widthOverrideCount,
+  onClearAll,
+}: {
+  label: string;
+  kind: "node" | "edge";
+  currentColor: string | undefined;
+  currentWidth: number | undefined;
+  onPickColor: (color: string) => void;
+  onResetColor: () => void;
+  onPickWidth: (multiplier: number) => void;
+  onResetWidth: () => void;
+  onDeselect: () => void;
+  colorOverrideCount: number;
+  widthOverrideCount: number;
+  onClearAll: () => void;
+}) {
+  const totalOverrides = colorOverrideCount + widthOverrideCount;
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-zinc-800 bg-[var(--color-panel-2)] px-3 py-1.5 text-[11px] text-zinc-200">
+      <Palette size={13} className="text-sky-300" />
+      <span className="font-medium text-zinc-100">{label}</span>
+
+      <div className="flex items-center gap-1">
+        <span className="text-zinc-400">Colour:</span>
+        {COLOR_PALETTE.map((c) => (
+          <button
+            type="button"
+            key={c.value}
+            title={c.label}
+            onClick={() => onPickColor(c.value)}
+            className={cn(
+              "h-4 w-4 rounded-sm border transition",
+              currentColor?.toLowerCase() === c.value.toLowerCase()
+                ? "border-sky-300 ring-1 ring-sky-400"
+                : "border-zinc-700 hover:border-zinc-400",
+            )}
+            style={{ backgroundColor: c.value }}
+          />
+        ))}
+        <label
+          className="ml-1 flex h-4 items-center gap-1 rounded-sm border border-zinc-700 px-1 hover:border-zinc-500"
+          title="Custom colour"
+        >
+          <span className="text-[10px] text-zinc-400">Custom</span>
+          <input
+            type="color"
+            value={currentColor ?? "#000000"}
+            onChange={(e) => onPickColor(e.target.value)}
+            className="h-3 w-4 cursor-pointer border-0 bg-transparent p-0"
+            style={{ appearance: "auto" }}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={onResetColor}
+          className="ml-0.5 flex items-center gap-1 rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-300 hover:border-zinc-500"
+          title="Reset to default colour"
+        >
+          <RotateCcw size={10} />
+        </button>
+      </div>
+
+      {/* Line-thickness picker only makes sense for pipes — components have a
+          single outline that doesn't change with width. */}
+      {kind === "edge" && (
+        <div className="flex items-center gap-1">
+          <span className="text-zinc-400">Width:</span>
+          {WIDTH_PRESETS.map((w) => {
+            const active = (currentWidth ?? 1) === w.value;
+            return (
+              <button
+                type="button"
+                key={w.value}
+                title={`${w.label} (${w.value.toFixed(2)}×)`}
+                onClick={() => onPickWidth(w.value)}
+                className={cn(
+                  "flex h-4 items-center rounded-sm border px-1.5 text-[10px] transition",
+                  active
+                    ? "border-sky-300 bg-sky-500/15 text-sky-200"
+                    : "border-zinc-700 text-zinc-300 hover:border-zinc-400",
+                )}
+              >
+                {w.label}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={onResetWidth}
+            className="ml-0.5 flex items-center gap-1 rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] text-zinc-300 hover:border-zinc-500"
+            title="Reset to default thickness"
+          >
+            <RotateCcw size={10} />
+          </button>
+        </div>
+      )}
+
+      <div className="ml-auto flex items-center gap-2">
+        {totalOverrides > 0 && (
+          <button
+            type="button"
+            onClick={onClearAll}
+            className="flex items-center gap-1 rounded border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-300 hover:border-zinc-500"
+            title="Clear all colour & width overrides on this page"
+          >
+            <Trash2 size={10} /> Clear all ({totalOverrides})
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onDeselect}
+          className="flex items-center gap-1 rounded border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-300 hover:border-zinc-500"
+          title="Deselect (Esc)"
+        >
+          <X size={10} /> Deselect
+        </button>
+      </div>
+    </div>
   );
 }

@@ -1,20 +1,21 @@
 import { useState } from "react";
-import { FileDown, Sheet } from "lucide-react";
+import { ClipboardList, FileDown } from "lucide-react";
 
 import {
+  newPageId,
   useDrawingsStore,
   useSelectedDrawingPage,
 } from "@/store/drawingsStore";
 import { useDiagramStore } from "@/store/diagramStore";
 import { useProjectStore } from "@/store/projectStore";
 import { exportDrawingsPdf } from "@/io/drawingsPdf";
-import { exportBomCsv } from "@/io/bomExport";
 import { PageList } from "@/components/Drawings/PageList";
 import { PagePreview } from "@/components/Drawings/PagePreview";
 import { PageInspector } from "@/components/Drawings/PageInspector";
 
 export function Drawings() {
   const pages = useDrawingsStore((s) => s.pages);
+  const addPage = useDrawingsStore((s) => s.addPage);
   const selectedPage = useSelectedDrawingPage();
   const meta = useProjectStore((s) => s.meta);
   const companyLogo = useDrawingsStore((s) => s.companyLogo);
@@ -41,22 +42,28 @@ export function Drawings() {
         companyLogo,
       });
     } catch (e) {
-      alert(`PDF export failed: ${(e as Error).message}`);
+      const msg =
+        e instanceof Error && e.message
+          ? e.message
+          : typeof e === "string"
+            ? e
+            : String(e);
+      alert(`PDF export failed: ${msg}`);
     } finally {
       setExporting(false);
     }
   }
 
-  async function onExportBom() {
-    try {
-      await exportBomCsv({
-        nodes: liveNodes,
-        edges: liveEdges,
-        meta,
-      });
-    } catch (e) {
-      alert(`BOM export failed: ${(e as Error).message}`);
-    }
+  function onAddBomPage() {
+    const idx = pages.filter((p) => p.type === "bom").length + 1;
+    addPage({
+      id: newPageId(),
+      title: idx === 1 ? "Bill of Materials" : `Bill of Materials (${idx})`,
+      type: "bom",
+      titleBlock: {},
+      annotations: [],
+      bom: { includePipes: true },
+    });
   }
 
   return (
@@ -71,10 +78,11 @@ export function Drawings() {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onExportBom}
+              onClick={onAddBomPage}
+              title="Insert a Bill of Materials page into this drawing set"
               className="flex items-center gap-1.5 rounded border border-zinc-700 bg-[var(--color-panel-2)] px-2 py-1 text-[11px] text-zinc-200 hover:border-sky-500"
             >
-              <Sheet size={12} /> BOM CSV
+              <ClipboardList size={12} /> Add BOM page
             </button>
             <button
               type="button"

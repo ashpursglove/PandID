@@ -163,7 +163,13 @@ export function useProjectIO() {
         await exportPdf({ nodes, edges, meta });
       }
     } catch (e) {
-      alert(`PDF export failed: ${(e as Error).message}`);
+      const msg =
+        e instanceof Error && e.message
+          ? e.message
+          : typeof e === "string"
+            ? e
+            : String(e);
+      alert(`PDF export failed: ${msg}`);
     }
   }, []);
 

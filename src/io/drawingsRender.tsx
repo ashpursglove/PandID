@@ -104,11 +104,53 @@ export function renderDrawingPage(
 function renderDiagramPageBody(page: DrawingPage): string {
   if (!page.diagram) return "";
   const { nodes, edges, bounds } = page.diagram;
-  // Inset top padding leaves room for the page title strip
-  return renderDiagramArea(nodes, edges, {
-    bounds,
-    padding: 10,
+
+  // The captured viewport bounds often include a lot of empty padding around
+  // the actual components (because the user framed the editor canvas, not
+  // tight content). To make the drawing fill the sheet, render only the
+  // nodes that overlap the captured viewport, and rescale to their *tight*
+  // bbox. Edges follow when both endpoints survive the filter.
+  const visibleNodes = nodes.filter((n) => nodeIntersectsBounds(n, bounds));
+  const renderedNodes = visibleNodes.length > 0 ? visibleNodes : nodes;
+  const idSet = new Set(renderedNodes.map((n) => n.id));
+  const renderedEdges = edges.filter(
+    (e) => idSet.has(e.source) && idSet.has(e.target),
+  );
+
+  // Pad the tight bounds slightly so symbols don't kiss the edge of the
+  // drawing area.
+  const tight = diagramBounds(renderedNodes);
+  const padW = (tight.maxX - tight.minX) * 0.04;
+  const padH = (tight.maxY - tight.minY) * 0.04;
+  const paddedBounds = {
+    minX: tight.minX - padW,
+    minY: tight.minY - padH,
+    maxX: tight.maxX + padW,
+    maxY: tight.maxY + padH,
+  };
+
+  return renderDiagramArea(renderedNodes, renderedEdges, {
+    bounds: paddedBounds,
+    // Asymmetric padding: reserve a fatter top strip for the page title
+    // header that gets drawn over the body, but keep left/right/bottom tight
+    // so the diagram fills the sheet.
+    padding: 4,
+    topPadding: 12,
+    colorOverrides: page.colorOverrides,
+    widthOverrides: page.widthOverrides,
   });
+}
+
+function nodeIntersectsBounds(
+  node: DiagramNode,
+  b: { minX: number; minY: number; maxX: number; maxY: number },
+): boolean {
+  const sym = getSymbol(node.data.symbolType);
+  const w = sym?.size.width ?? 64;
+  const h = sym?.size.height ?? 64;
+  const x = node.position.x;
+  const y = node.position.y;
+  return x < b.maxX && x + w > b.minX && y < b.maxY && y + h > b.minY;
 }
 
 /* ---------------------------- analysis page ----------------------------- */
