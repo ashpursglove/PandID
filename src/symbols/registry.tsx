@@ -14,6 +14,8 @@ import { ReliefValve } from "@/symbols/valves/ReliefValve";
 
 import { InstrumentBubble } from "@/symbols/instruments/InstrumentBubble";
 
+import { TapPoint } from "@/symbols/connectors/TapPoint";
+
 import type { SymbolCategory, SymbolDef } from "@/symbols/types";
 
 /** ISA 5.1 two-letter instrument code helper. */
@@ -383,6 +385,24 @@ export const SYMBOL_REGISTRY: Record<string, SymbolDef> = {
     defaultParams: { setPressureBar: 10 },
   },
 
+  // --- Connectors ---------------------------------------------------------
+  "tap-point": {
+    type: "tap-point",
+    category: "connector",
+    label: "Tap point",
+    description: "Process-line tap for instruments",
+    size: { width: 16, height: 16 },
+    ports: [
+      { id: "pipe-left", side: "left", position: 0.5 },
+      { id: "pipe-right", side: "right", position: 0.5 },
+      { id: "signal-top", side: "top", position: 0.5 },
+      { id: "signal-bottom", side: "bottom", position: 0.5 },
+    ],
+    engineModel: "passive",
+    Icon: TapPoint,
+    defaultLabel: "",
+  },
+
   // --- Instruments --------------------------------------------------------
   "instrument-pi": instrumentSymbol("instrument-pi", "PI", "Pressure indicator"),
   "instrument-pt": instrumentSymbol("instrument-pt", "PT", "Pressure transmitter"),
@@ -418,7 +438,7 @@ export const SYMBOL_ORDER: Record<SymbolCategory, string[]> = {
     "instrument-ti",
     "instrument-li",
   ],
-  connector: [],
+  connector: ["tap-point"],
 };
 
 export const CATEGORY_LABELS: Record<SymbolCategory, string> = {

@@ -31,6 +31,7 @@ export function Toolbar() {
   const meta = useProjectStore((s) => s.meta);
   const isDirty = useProjectStore((s) => s.isDirty);
   const removeSelected = useDiagramStore((s) => s.removeSelected);
+  const rotateSelected = useDiagramStore((s) => s.rotateSelected);
 
   const temporal = useStore(useDiagramHistory());
   const canUndo = temporal.pastStates.length > 0;
@@ -76,6 +77,22 @@ export function Toolbar() {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [newProject, openProject, save, saveAs, temporal]);
+
+  // Rotation shortcuts work without modifier keys
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const inField =
+        e.target instanceof HTMLElement &&
+        ["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName);
+      if (inField || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === "r" || e.key === "R") {
+        e.preventDefault();
+        rotateSelected(e.shiftKey ? -90 : 90);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [rotateSelected]);
 
   return (
     <header className="flex h-12 shrink-0 items-center justify-between border-b border-zinc-800 bg-[var(--color-panel)] px-3">

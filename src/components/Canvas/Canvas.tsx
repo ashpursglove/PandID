@@ -24,6 +24,11 @@ import { SymbolNode } from "@/components/Canvas/SymbolNode";
 import { PipeEdge } from "@/components/Canvas/PipeEdge";
 import { DRAG_DATA_TYPE } from "@/components/Palette/dragMime";
 import { nextTag } from "@/components/Canvas/autoTag";
+import {
+  TAP_THRESHOLD,
+  buildTapInsertion,
+  findClosestProcessEdge,
+} from "@/components/Canvas/tapInsertion";
 import { cn } from "@/lib/utils";
 
 interface CanvasProps {
@@ -34,9 +39,12 @@ const nodeTypes: NodeTypes = { symbol: SymbolNode };
 const edgeTypes: EdgeTypes = { pipe: PipeEdge };
 
 let idCounter = 0;
-function nextNodeId() {
+function nextId(prefix: string) {
   idCounter += 1;
-  return `n-${Date.now().toString(36)}-${idCounter}`;
+  return `${prefix}-${Date.now().toString(36)}-${idCounter}`;
+}
+function nextNodeId() {
+  return nextId("n");
 }
 
 export function Canvas({ className }: CanvasProps) {
@@ -51,6 +59,7 @@ export function Canvas({ className }: CanvasProps) {
     onConnect,
     onSelectionChange,
     addNode,
+    applyChanges,
   } = useDiagramStore(
     useShallow((s) => ({
       nodes: s.nodes,
@@ -60,6 +69,7 @@ export function Canvas({ className }: CanvasProps) {
       onConnect: s.onConnect,
       onSelectionChange: s.onSelectionChange,
       addNode: s.addNode,
+      applyChanges: s.applyChanges,
     })),
   );
 
@@ -110,9 +120,40 @@ export function Canvas({ className }: CanvasProps) {
           params: { ...(symbol.defaultParams ?? {}) },
         },
       };
+
+      // If this is an instrument dropped near a process pipe, auto-attach by
+      // splitting the pipe and inserting a tap point.
+      if (symbol.category === "instrument") {
+        const state = useDiagramStore.getState();
+        const instCentre = {
+          x: position.x + symbol.size.width / 2,
+          y: position.y + symbol.size.height / 2,
+        };
+        const hit = findClosestProcessEdge(instCentre, state.edges, state.nodes);
+        if (hit && hit.distance <= TAP_THRESHOLD) {
+          const signalHandle = symbol.ports[0]?.id ?? "signal";
+          const insertion = buildTapInsertion({
+            edge: hit.edge,
+            tapAt: hit.point,
+            tParam: hit.t,
+            instrument: node,
+            instrumentSignalHandle: signalHandle,
+            newId: () => nextId("auto"),
+          });
+          if (insertion) {
+            applyChanges({
+              addNodes: [node, ...insertion.addNodes],
+              addEdges: insertion.addEdges,
+              removeEdges: insertion.removeEdges,
+            });
+            return;
+          }
+        }
+      }
+
       addNode(node);
     },
-    [addNode, screenToFlowPosition],
+    [addNode, applyChanges, screenToFlowPosition],
   );
 
   const defaultEdgeOptions = useMemo(

@@ -19,6 +19,7 @@ export function Select<T extends string>({
       onChange={(e) => onChange(e.target.value as T)}
       className={cn(
         "w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-xs text-zinc-100 outline-none focus:border-sky-500",
+        "[color-scheme:dark]",
         className,
       )}
     >

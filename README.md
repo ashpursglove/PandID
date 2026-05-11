@@ -53,15 +53,23 @@ Output lands in `src-tauri/target/release/bundle/`.
 
 ## Keyboard shortcuts
 
-| Action          | Shortcut              |
-| --------------- | --------------------- |
-| New project     | Ctrl + N              |
-| Open            | Ctrl + O              |
-| Save            | Ctrl + S              |
-| Save As         | Ctrl + Shift + S      |
-| Undo            | Ctrl + Z              |
-| Redo            | Ctrl + Y or Shift + Z |
-| Delete selected | Delete / Backspace    |
+| Action                       | Shortcut              |
+| ---------------------------- | --------------------- |
+| New project                  | Ctrl + N              |
+| Open                         | Ctrl + O              |
+| Save                         | Ctrl + S              |
+| Save As                      | Ctrl + Shift + S      |
+| Undo                         | Ctrl + Z              |
+| Redo                         | Ctrl + Y or Shift + Z |
+| Delete selected              | Delete / Backspace    |
+| Rotate selected 90° CW       | R                     |
+| Rotate selected 90° CCW      | Shift + R             |
+
+## Tips
+
+- **Attach an instrument to a pipe** — just drop the instrument near the pipe. The editor automatically inserts a tap point and splits the pipe, then runs a pneumatic signal line from the tap to the instrument. (You can also drop a stand-alone tap point from the Connectors section of the palette.)
+- **Skip the lookups** — every component has a Preset selector in the inspector. Pumps, valves, pipes, and fluids all ship with curated common values (DN sizes × materials, vendor-style pump curves, fluid properties from 20 °C water to glycerine).
+- **Rotate after placing** — select a component and press R (or use the rotate buttons in the inspector). Port positions follow the rotation, so connections stay valid.
 
 ## Project file format
 

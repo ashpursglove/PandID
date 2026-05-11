@@ -84,7 +84,7 @@ export function deserialise(text: string): ProjectFile {
  * function for clarity. Add new steps below the existing ones.
  */
 function migrate(raw: Record<string, unknown>): ProjectFile {
-  let current = raw;
+  const current = raw;
   if (current.version === 1) {
     return validateV1(current);
   }

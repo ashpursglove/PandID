@@ -41,5 +41,8 @@ export interface PipeEdgeData {
     roughnessMm?: number;
     elevationChangeM?: number;
     fittings?: { kind: string; k: number; count: number }[];
+    /** Last pipe preset picks (material × nominal) from the inspector. */
+    presetMaterialId?: string;
+    presetNominalId?: string;
   };
 }

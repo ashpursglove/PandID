@@ -1,4 +1,5 @@
 import { useShallow } from "zustand/react/shallow";
+import { RotateCcw, RotateCw } from "lucide-react";
 
 import { useDiagramStore } from "@/store/diagramStore";
 import { useProjectStore } from "@/store/projectStore";
@@ -10,7 +11,22 @@ import { cn } from "@/lib/utils";
 import { ParamField } from "./ParamField";
 import { TextInput } from "./fields/TextInput";
 import { Select } from "./fields/Select";
+import { PresetDropdown, type PresetItem } from "./PresetDropdown";
 import { PIPE_PARAM_SCHEMA } from "./schemas";
+import {
+  PIPE_MATERIAL_OPTIONS,
+  PIPE_NOMINAL_OPTIONS,
+  type PipeMaterialId,
+  resolvePipePreset,
+} from "@/presets/pipes";
+import {
+  PUMP_PRESETS,
+  PUMP_TIER_OPTIONS,
+  type PumpPresetValues,
+  type PumpTierId,
+  pumpPresetsForTier,
+} from "@/presets/pumps";
+import { VALVE_PRESETS, type ValvePreset } from "@/presets/valves";
 
 interface InspectorProps {
   className?: string;
@@ -114,24 +130,12 @@ function NodeForm({ nodeId }: { nodeId: string }) {
             onChange={(v) => updateNodeData(nodeId, { label: v })}
           />
         </label>
-        <label className="flex flex-col gap-1">
-          <span className="px-1 text-[11px] font-medium text-zinc-400">
-            Rotation
-          </span>
-          <Select
-            value={String((node.data.rotation as number | undefined) ?? 0)}
-            options={[
-              { value: "0", label: "0°" },
-              { value: "90", label: "90°" },
-              { value: "180", label: "180°" },
-              { value: "270", label: "270°" },
-            ]}
-            onChange={(v) =>
-              updateNodeData(nodeId, { rotation: Number.parseInt(v, 10) })
-            }
-          />
-        </label>
+        <RotationRow nodeId={nodeId} />
       </Section>
+
+      {renderNodePresets(symbol.type, params, (next) =>
+        updateNodeData(nodeId, { params: next }),
+      )}
 
       {symbol.paramSchema && symbol.paramSchema.length > 0 && (
         <Section title="Parameters">
@@ -153,6 +157,164 @@ function NodeForm({ nodeId }: { nodeId: string }) {
   );
 }
 
+function renderNodePresets(
+  symbolType: string,
+  params: Record<string, unknown>,
+  setParams: (next: Record<string, unknown>) => void,
+) {
+  if (symbolType === "centrifugal-pump" || symbolType === "pd-pump") {
+    return <PumpPresetSection params={params} setParams={setParams} />;
+  }
+  const valvePresets = VALVE_PRESETS[symbolType];
+  if (valvePresets) {
+    return (
+      <ValveSizeSection
+        presets={valvePresets}
+        params={params}
+        setParams={setParams}
+      />
+    );
+  }
+  return null;
+}
+
+function PumpPresetSection({
+  params,
+  setParams,
+}: {
+  params: Record<string, unknown>;
+  setParams: (next: Record<string, unknown>) => void;
+}) {
+  let tier = (params.pumpPresetTier as PumpTierId | undefined) ?? "medium";
+  const presetId = params.pumpPresetId as string | undefined;
+  if (presetId) {
+    const found = PUMP_PRESETS.find((p) => p.id === presetId);
+    if (found) tier = found.tier;
+  } else if (!PUMP_TIER_OPTIONS.some((t) => t.id === tier)) {
+    tier = "medium";
+  }
+
+  const models = pumpPresetsForTier(tier);
+  const items: PresetItem<PumpPresetValues>[] = models.map((p) => ({
+    id: p.id,
+    label: p.label,
+    values: p.values,
+  }));
+
+  return (
+    <Section title="Pump preset">
+      <label className="flex flex-col gap-1">
+        <span className="px-1 text-[11px] font-medium text-zinc-400">
+          Duty class
+        </span>
+        <Select
+          value={tier}
+          options={PUMP_TIER_OPTIONS.map((t) => ({
+            value: t.id,
+            label: t.label,
+          }))}
+          onChange={(t) => {
+            const nextTier = t as PumpTierId;
+            const inTier = pumpPresetsForTier(nextTier).some(
+              (p) => p.id === presetId,
+            );
+            setParams({
+              ...params,
+              pumpPresetTier: nextTier,
+              ...(inTier ? {} : { pumpPresetId: undefined }),
+            });
+          }}
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="px-1 text-[11px] font-medium text-zinc-400">
+          Curve / rating
+        </span>
+        <PresetDropdown
+          items={items}
+          selectedId={presetId}
+          placeholder="Choose a rating…"
+          onSelect={(item) => {
+            const full = models.find((m) => m.id === item.id);
+            setParams({
+              ...params,
+              ...item.values,
+              pumpPresetId: item.id,
+              pumpPresetTier: full?.tier ?? tier,
+            });
+          }}
+          onClear={() =>
+            setParams({
+              ...params,
+              pumpPresetId: undefined,
+            })
+          }
+        />
+      </label>
+      <p className="px-1 text-[10px] text-zinc-500">
+        Pick a class, then a specific curve. Adjust numbers below to match your
+        datasheet.
+      </p>
+    </Section>
+  );
+}
+
+function ValveSizeSection({
+  presets,
+  params,
+  setParams,
+}: {
+  presets: ValvePreset[];
+  params: Record<string, unknown>;
+  setParams: (next: Record<string, unknown>) => void;
+}) {
+  const nominal =
+    (params.valveNominalId as string | undefined) ??
+    (params.valvePresetDn as string | undefined) ??
+    "";
+
+  return (
+    <Section title="Valve sizing">
+      <label className="flex flex-col gap-1">
+        <span className="px-1 text-[11px] font-medium text-zinc-400">
+          Nominal size (DN)
+        </span>
+        <Select
+          value={nominal}
+          options={[
+            { value: "", label: "— choose DN —" },
+            ...presets.map((p) => ({
+              value: p.nominalId,
+              label: p.nominalId,
+            })),
+          ]}
+          onChange={(dn) => {
+            const p = presets.find((x) => x.nominalId === dn);
+            if (p) {
+              setParams({
+                ...params,
+                ...p.values,
+                valveNominalId: p.nominalId,
+                valvePresetId: p.id,
+              });
+            } else {
+              setParams({
+                ...params,
+                valveNominalId: undefined,
+                valvePresetId: undefined,
+              });
+            }
+          }}
+        />
+      </label>
+      <p className="px-1 text-[10px] text-zinc-500">
+        Valve family is the symbol you placed; this sets a typical fully-open Cv
+        for the nominal bore.
+      </p>
+    </Section>
+  );
+}
+
 function EdgeForm({ edgeId }: { edgeId: string }) {
   const edge = useDiagramStore((s) => s.edges.find((e) => e.id === edgeId));
   const updateEdgeData = useDiagramStore((s) => s.updateEdgeData);
@@ -161,6 +323,38 @@ function EdgeForm({ edgeId }: { edgeId: string }) {
 
   const data: PipeEdgeData = edge.data ?? {};
   const pipe = data.pipe ?? {};
+
+  function patchPipe(patch: Record<string, unknown>) {
+    const clearsPreset =
+      "innerDiameterMm" in patch || "roughnessMm" in patch;
+    updateEdgeData(edgeId, {
+      pipe: {
+        ...pipe,
+        ...patch,
+        ...(clearsPreset
+          ? { presetMaterialId: undefined, presetNominalId: undefined }
+          : {}),
+      },
+    });
+  }
+
+  const mat = (pipe.presetMaterialId as PipeMaterialId | undefined) ?? "";
+  const nom = pipe.presetNominalId ?? "";
+
+  function applyPipePreset(m: PipeMaterialId | "", n: string) {
+    const nextPipe = {
+      ...pipe,
+      presetMaterialId: m || undefined,
+      presetNominalId: n || undefined,
+    };
+    if (m && n) {
+      const v = resolvePipePreset(m, n);
+      if (v) {
+        Object.assign(nextPipe, v);
+      }
+    }
+    updateEdgeData(edgeId, { pipe: nextPipe });
+  }
 
   return (
     <>
@@ -197,10 +391,51 @@ function EdgeForm({ edgeId }: { edgeId: string }) {
           </span>
           <TextInput
             value={data.tag ?? ""}
-            placeholder="e.g. 4&quot;-PS-001"
+            placeholder='e.g. 4"-PS-001'
             onChange={(v) => updateEdgeData(edgeId, { tag: v })}
           />
         </label>
+      </Section>
+
+      <Section title="Pipe preset">
+        <label className="flex flex-col gap-1">
+          <span className="px-1 text-[11px] font-medium text-zinc-400">
+            Material / construction
+          </span>
+          <Select
+            value={mat}
+            options={[
+              { value: "", label: "— material —" },
+              ...PIPE_MATERIAL_OPTIONS.map((o) => ({
+                value: o.id,
+                label: o.label,
+              })),
+            ]}
+            onChange={(v) => applyPipePreset((v || "") as PipeMaterialId | "", nom)}
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="px-1 text-[11px] font-medium text-zinc-400">
+            Nominal size
+          </span>
+          <Select
+            value={nom}
+            options={[
+              { value: "", label: "— DN / NPS —" },
+              ...PIPE_NOMINAL_OPTIONS.map((o) => ({
+                value: o.id,
+                label: o.label,
+              })),
+            ]}
+            onChange={(n) =>
+              applyPipePreset((mat || "") as PipeMaterialId | "", n)
+            }
+          />
+        </label>
+        <p className="px-1 text-[10px] text-zinc-500">
+          Pick material then size (or both); inner diameter and roughness fill in
+          automatically. Editing those fields manually clears the preset link.
+        </p>
       </Section>
 
       <Section title="Pipe">
@@ -209,15 +444,46 @@ function EdgeForm({ edgeId }: { edgeId: string }) {
             key={field.key}
             schema={field}
             value={(pipe as Record<string, unknown>)[field.key]}
-            onChange={(value) =>
-              updateEdgeData(edgeId, {
-                pipe: { ...pipe, [field.key]: value },
-              })
-            }
+            onChange={(value) => patchPipe({ [field.key]: value })}
           />
         ))}
       </Section>
     </>
+  );
+}
+
+function RotationRow({ nodeId }: { nodeId: string }) {
+  const node = useDiagramStore((s) => s.nodes.find((n) => n.id === nodeId));
+  const rotateSelected = useDiagramStore((s) => s.rotateSelected);
+  const rotation = ((node?.data.rotation as number | undefined) ?? 0) % 360;
+
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="px-1 text-[11px] font-medium text-zinc-400">
+        Rotation
+      </span>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          title="Rotate left (Shift+R)"
+          onClick={() => rotateSelected(-90)}
+          className="flex h-7 w-7 items-center justify-center rounded border border-zinc-800 text-zinc-300 hover:border-zinc-600 hover:text-zinc-100"
+        >
+          <RotateCcw size={13} />
+        </button>
+        <span className="w-10 text-center font-mono text-xs text-zinc-200">
+          {rotation}°
+        </span>
+        <button
+          type="button"
+          title="Rotate right (R)"
+          onClick={() => rotateSelected(90)}
+          className="flex h-7 w-7 items-center justify-center rounded border border-zinc-800 text-zinc-300 hover:border-zinc-600 hover:text-zinc-100"
+        >
+          <RotateCw size={13} />
+        </button>
+      </div>
+    </div>
   );
 }
 

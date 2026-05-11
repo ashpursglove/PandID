@@ -15,7 +15,12 @@ interface PaletteProps {
   className?: string;
 }
 
-const CATEGORY_ORDER: SymbolCategory[] = ["equipment", "valve", "instrument"];
+const CATEGORY_ORDER: SymbolCategory[] = [
+  "equipment",
+  "valve",
+  "instrument",
+  "connector",
+];
 
 export function Palette({ className }: PaletteProps) {
   return (

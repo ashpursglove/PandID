@@ -30,8 +30,15 @@ interface DiagramState {
   onSelectionChange: (params: { nodes: DiagramNode[]; edges: DiagramEdge[] }) => void;
 
   addNode: (node: DiagramNode) => void;
+  /** Atomic add nodes / add edges / remove edges (used for tap-point insertion). */
+  applyChanges: (changes: {
+    addNodes?: DiagramNode[];
+    addEdges?: DiagramEdge[];
+    removeEdges?: string[];
+  }) => void;
   updateNodeData: (id: string, patch: Partial<SymbolNodeData>) => void;
   updateEdgeData: (id: string, patch: Partial<PipeEdgeData>) => void;
+  rotateSelected: (deltaDeg: number) => void;
   removeSelected: () => void;
   replaceAll: (nodes: DiagramNode[], edges: DiagramEdge[]) => void;
   clear: () => void;
@@ -81,6 +88,19 @@ export const useDiagramStore = create<DiagramState>()(
 
       addNode: (node) => set({ nodes: [...get().nodes, node] }),
 
+      applyChanges: ({ addNodes, addEdges, removeEdges }) => {
+        const removed = new Set(removeEdges ?? []);
+        set({
+          nodes: addNodes?.length
+            ? [...get().nodes, ...addNodes]
+            : get().nodes,
+          edges: [
+            ...get().edges.filter((e) => !removed.has(e.id)),
+            ...(addEdges ?? []),
+          ],
+        });
+      },
+
       updateNodeData: (id, patch) =>
         set({
           nodes: get().nodes.map((n) =>
@@ -96,6 +116,22 @@ export const useDiagramStore = create<DiagramState>()(
               : e,
           ),
         }),
+
+      rotateSelected: (deltaDeg) => {
+        const { selectedNodeId, nodes } = get();
+        if (!selectedNodeId) return;
+        const node = nodes.find((n) => n.id === selectedNodeId);
+        if (!node) return;
+        const current = (node.data.rotation ?? 0) as number;
+        const next = (((current + deltaDeg) % 360) + 360) % 360;
+        set({
+          nodes: nodes.map((n) =>
+            n.id === selectedNodeId
+              ? { ...n, data: { ...n.data, rotation: next } }
+              : n,
+          ),
+        });
+      },
 
       removeSelected: () => {
         const { selectedNodeId, selectedEdgeId, nodes, edges } = get();

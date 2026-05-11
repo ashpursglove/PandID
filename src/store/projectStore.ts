@@ -19,6 +19,9 @@ export interface Fluid {
   densityKgM3: number;
   viscosityPaS: number;
   temperatureC: number;
+  /** Inspector: last fluid preset category / id for two-step preset UI. */
+  presetCategory?: string;
+  presetId?: string;
 }
 
 interface ProjectState {
