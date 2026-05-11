@@ -27,6 +27,11 @@ import {
   pumpPresetsForTier,
 } from "@/presets/pumps";
 import { VALVE_PRESETS, type ValvePreset } from "@/presets/valves";
+import {
+  FILTER_MESH_OPTIONS,
+  FILTER_PRESETS,
+  FILTER_SIZE_OPTIONS,
+} from "@/presets/filters";
 
 interface InspectorProps {
   className?: string;
@@ -157,12 +162,25 @@ function NodeForm({ nodeId }: { nodeId: string }) {
   );
 }
 
+const PUMP_SYMBOL_TYPES = new Set([
+  "centrifugal-pump",
+  "vertical-centrifugal-pump",
+  "submersible-pump",
+  "pd-pump",
+  "gear-pump",
+  "piston-pump",
+  "screw-pump",
+  "diaphragm-pump",
+  "peristaltic-pump",
+  "vacuum-pump",
+]);
+
 function renderNodePresets(
   symbolType: string,
   params: Record<string, unknown>,
   setParams: (next: Record<string, unknown>) => void,
 ) {
-  if (symbolType === "centrifugal-pump" || symbolType === "pd-pump") {
+  if (PUMP_SYMBOL_TYPES.has(symbolType)) {
     return <PumpPresetSection params={params} setParams={setParams} />;
   }
   const valvePresets = VALVE_PRESETS[symbolType];
@@ -170,6 +188,15 @@ function renderNodePresets(
     return (
       <ValveSizeSection
         presets={valvePresets}
+        params={params}
+        setParams={setParams}
+      />
+    );
+  }
+  if (FILTER_PRESETS[symbolType]) {
+    return (
+      <FilterPresetSection
+        symbolType={symbolType}
         params={params}
         setParams={setParams}
       />
@@ -254,6 +281,76 @@ function PumpPresetSection({
       <p className="px-1 text-[10px] text-zinc-500">
         Pick a class, then a specific curve. Adjust numbers below to match your
         datasheet.
+      </p>
+    </Section>
+  );
+}
+
+function FilterPresetSection({
+  symbolType,
+  params,
+  setParams,
+}: {
+  symbolType: string;
+  params: Record<string, unknown>;
+  setParams: (next: Record<string, unknown>) => void;
+}) {
+  const presets = FILTER_PRESETS[symbolType] ?? [];
+  const sizeId = (params.filterSizeId as string | undefined) ?? "";
+  const meshId = (params.filterMeshId as string | undefined) ?? "";
+
+  function apply(size: string, mesh: string) {
+    const found = presets.find((p) =>
+      p.id.endsWith(`-${size}-${mesh}`),
+    );
+    const next: Record<string, unknown> = {
+      ...params,
+      filterSizeId: size || undefined,
+      filterMeshId: mesh || undefined,
+    };
+    if (found) {
+      Object.assign(next, found.values);
+    }
+    setParams(next);
+  }
+
+  return (
+    <Section title="Filter sizing">
+      <label className="flex flex-col gap-1">
+        <span className="px-1 text-[11px] font-medium text-zinc-400">
+          Line size
+        </span>
+        <Select
+          value={sizeId}
+          options={[
+            { value: "", label: "— choose DN —" },
+            ...FILTER_SIZE_OPTIONS.map((o) => ({
+              value: o.id,
+              label: o.label,
+            })),
+          ]}
+          onChange={(v) => apply(v, meshId)}
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="px-1 text-[11px] font-medium text-zinc-400">
+          Mesh / element rating
+        </span>
+        <Select
+          value={meshId}
+          options={[
+            { value: "", label: "— choose mesh —" },
+            ...FILTER_MESH_OPTIONS.map((o) => ({
+              value: o.id,
+              label: o.label,
+            })),
+          ]}
+          onChange={(v) => apply(sizeId, v)}
+        />
+      </label>
+      <p className="px-1 text-[10px] text-zinc-500">
+        Picks a clean-element K and connection ID. Replace as soon as you have
+        the vendor's pressure-drop curve.
       </p>
     </Section>
   );

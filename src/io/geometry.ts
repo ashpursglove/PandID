@@ -20,6 +20,45 @@ export function sideToPosition(side: PortSide): Position {
   return SIDE_TO_POSITION[side];
 }
 
+/**
+ * Apply a clockwise 90° rotation to a port. The position fraction is flipped
+ * on the two rotations that reverse the parameterisation of the new side so
+ * that visually "the same end" of the symbol keeps the same handle.
+ *
+ * top    →  right (pos stays)
+ * right  →  bottom (pos = 1 - pos)
+ * bottom →  left   (pos = 1 - pos)
+ * left   →  top    (pos stays)
+ */
+export function rotatePort(
+  side: PortSide,
+  position: number,
+  rotationDeg: number,
+): { side: PortSide; position: number } {
+  const steps = (((Math.round(rotationDeg / 90) % 4) + 4) % 4) as 0 | 1 | 2 | 3;
+  let s: PortSide = side;
+  let p = position;
+  for (let i = 0; i < steps; i++) {
+    switch (s) {
+      case "top":
+        s = "right";
+        break;
+      case "right":
+        s = "bottom";
+        p = 1 - p;
+        break;
+      case "bottom":
+        s = "left";
+        p = 1 - p;
+        break;
+      case "left":
+        s = "top";
+        break;
+    }
+  }
+  return { side: s, position: p };
+}
+
 export function portLocalXY(
   side: PortSide,
   position: number,
@@ -35,47 +74,6 @@ export function portLocalXY(
       return { x: 0, y: height * position };
     case "right":
       return { x: width, y: height * position };
-  }
-}
-
-/** Rotate a point around the node centre (same transform as the on-canvas symbol). */
-export function rotateAroundNodeCenter(
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  deg: number,
-): { x: number; y: number } {
-  const cx = width / 2;
-  const cy = height / 2;
-  const rad = (deg * Math.PI) / 180;
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
-  const ox = x - cx;
-  const oy = y - cy;
-  return {
-    x: cos * ox - sin * oy + cx,
-    y: sin * ox + cos * oy + cy,
-  };
-}
-
-function flowPositionFromVector(dx: number, dy: number): Position {
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    return dx >= 0 ? Position.Right : Position.Left;
-  }
-  return dy >= 0 ? Position.Bottom : Position.Top;
-}
-
-function portSideFromPosition(p: Position): PortSide {
-  switch (p) {
-    case Position.Top:
-      return "top";
-    case Position.Bottom:
-      return "bottom";
-    case Position.Left:
-      return "left";
-    case Position.Right:
-      return "right";
   }
 }
 
@@ -104,19 +102,19 @@ export function portWorldPosition(
   if (handleId && symbol) {
     const port = symbol.ports.find((p) => p.id === handleId);
     if (port) {
-      const local = portLocalXY(port.side, port.position, width, height);
-      const rot = (node.data.rotation as number | undefined) ?? 0;
-      const r = rotateAroundNodeCenter(local.x, local.y, width, height, rot);
-      const wx = baseX + r.x;
-      const wy = baseY + r.y;
-      const cx = baseX + width / 2;
-      const cy = baseY + height / 2;
-      const pos = flowPositionFromVector(wx - cx, wy - cy);
+      const rotation = (node.data.rotation as number | undefined) ?? 0;
+      const rotated = rotatePort(port.side, port.position, rotation);
+      const local = portLocalXY(
+        rotated.side,
+        rotated.position,
+        width,
+        height,
+      );
       return {
-        x: wx,
-        y: wy,
-        side: portSideFromPosition(pos),
-        position: pos,
+        x: baseX + local.x,
+        y: baseY + local.y,
+        side: rotated.side,
+        position: SIDE_TO_POSITION[rotated.side],
       };
     }
   }

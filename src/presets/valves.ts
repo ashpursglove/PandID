@@ -1,7 +1,8 @@
 /**
- * Representative valve Cv values for fully-open / typical sizes. Numbers are
- * order-of-magnitude correct (Crane TP-410 / vendor data) and intended to give
- * a sensible starting point. Refine in the inspector for specific products.
+ * Representative valve Cv values for fully-open valves across the common
+ * nominal sizes. Numbers are order-of-magnitude correct (Crane TP-410 / vendor
+ * datasheets) and meant as a sensible starting point; refine in the inspector
+ * for specific products.
  */
 
 export interface ValvePresetValues {
@@ -22,74 +23,72 @@ interface ValveTable {
   sizes: { dn: string; cv: number }[];
 }
 
+/** Standard DN list used as the "spine" for every valve family. */
+const STANDARD_DN = [
+  "DN15",
+  "DN20",
+  "DN25",
+  "DN40",
+  "DN50",
+  "DN80",
+  "DN100",
+  "DN150",
+  "DN200",
+  "DN250",
+  "DN300",
+];
+
+/**
+ * Build a Cv table for a valve family from a base Cv at DN50 and an exponent
+ * that captures how Cv scales with size. Real valves don't follow a clean power
+ * law, but Cv ∝ d^n with n≈2 is a useful first pass for sizing estimates.
+ */
+function family(
+  prefix: string,
+  name: string,
+  cvAtDn50: number,
+  exponent = 2,
+): ValveTable {
+  return {
+    prefix,
+    family: name,
+    sizes: STANDARD_DN.map((dn) => {
+      const dnNum = Number.parseInt(dn.replace(/\D/g, ""), 10);
+      const ratio = dnNum / 50;
+      const cv = Math.round(cvAtDn50 * Math.pow(ratio, exponent) * 10) / 10;
+      return { dn, cv };
+    }),
+  };
+}
+
 const TABLES: Record<string, ValveTable> = {
-  "gate-valve": {
-    prefix: "gate",
-    family: "Gate valve",
-    sizes: [
-      { dn: "DN15", cv: 12 },
-      { dn: "DN25", cv: 30 },
-      { dn: "DN50", cv: 90 },
-      { dn: "DN80", cv: 200 },
-      { dn: "DN100", cv: 350 },
-      { dn: "DN150", cv: 700 },
-    ],
-  },
-  "globe-valve": {
-    prefix: "globe",
-    family: "Globe valve",
-    sizes: [
-      { dn: "DN15", cv: 4 },
-      { dn: "DN25", cv: 9 },
-      { dn: "DN50", cv: 25 },
-      { dn: "DN80", cv: 60 },
-      { dn: "DN100", cv: 110 },
-      { dn: "DN150", cv: 240 },
-    ],
-  },
-  "ball-valve": {
-    prefix: "ball",
-    family: "Ball valve",
-    sizes: [
-      { dn: "DN15", cv: 14 },
-      { dn: "DN25", cv: 38 },
-      { dn: "DN50", cv: 120 },
-      { dn: "DN80", cv: 280 },
-      { dn: "DN100", cv: 500 },
-      { dn: "DN150", cv: 1100 },
-    ],
-  },
-  "check-valve": {
-    prefix: "check",
-    family: "Check valve (swing)",
-    sizes: [
-      { dn: "DN15", cv: 6 },
-      { dn: "DN25", cv: 18 },
-      { dn: "DN50", cv: 55 },
-      { dn: "DN80", cv: 120 },
-      { dn: "DN100", cv: 220 },
-      { dn: "DN150", cv: 480 },
-    ],
-  },
-  "control-valve": {
-    prefix: "control",
-    family: "Control valve (linear)",
-    sizes: [
-      { dn: "DN15", cv: 4 },
-      { dn: "DN25", cv: 12 },
-      { dn: "DN50", cv: 40 },
-      { dn: "DN80", cv: 110 },
-      { dn: "DN100", cv: 180 },
-      { dn: "DN150", cv: 360 },
-    ],
-  },
+  "gate-valve": family("gate", "Gate valve", 90),
+  "globe-valve": family("globe", "Globe valve", 25),
+  "ball-valve": family("ball", "Ball valve", 120),
+  "butterfly-valve": family("bfv", "Butterfly valve", 200),
+  "plug-valve": family("plug", "Plug valve", 100),
+  "diaphragm-valve": family("dpv", "Diaphragm valve", 30),
+  "pinch-valve": family("pnv", "Pinch valve", 35),
+  "needle-valve": family("nv", "Needle valve", 1.5),
+  "angle-valve": family("av", "Angle valve", 20),
+  "three-way-valve": family("3wv", "Three-way valve", 80),
+  "hand-valve": family("hv", "Hand valve (generic)", 50),
+  "check-valve": family("check", "Swing check valve", 55),
+  "lift-check-valve": family("lift", "Lift check valve", 25),
+  "foot-valve": family("foot", "Foot valve", 35),
+  "control-valve": family("control", "Control valve (linear)", 40),
+  "solenoid-valve": family("sol", "Solenoid valve", 5),
+  "motor-operated-valve": family("mov", "Motor-operated valve", 100),
+  "pressure-regulator": family("pcv", "Pressure regulator", 20),
   "relief-valve": {
     prefix: "psv",
     family: "Relief valve",
     sizes: [
       { dn: "DN15", cv: 5 },
       { dn: "DN25", cv: 15 },
+      { dn: "DN40", cv: 35 },
       { dn: "DN50", cv: 60 },
+      { dn: "DN80", cv: 130 },
     ],
   },
 };

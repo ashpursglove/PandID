@@ -2,7 +2,13 @@ import type { ComponentType } from "react";
 
 import type { LineType, PortDef } from "@/types/diagram";
 
-export type SymbolCategory = "equipment" | "valve" | "instrument" | "connector";
+export type SymbolCategory =
+  | "equipment"
+  | "valve"
+  | "filter"
+  | "inline"
+  | "instrument"
+  | "connector";
 
 /** Forms the schema-driven Inspector form. */
 export interface ParamFieldSchema {
@@ -40,6 +46,9 @@ export interface SymbolDef {
   /** Registry key, e.g. "centrifugal-pump". Must be stable across versions. */
   type: string;
   category: SymbolCategory;
+  /** Sub-grouping inside a category (e.g. "Pumps", "Compressors") for the
+   *  palette tree. Symbols without a subcategory go into a default group. */
+  subcategory?: string;
   /** Palette label. */
   label: string;
   description?: string;
