@@ -20,9 +20,10 @@ export const PipeEdge = memo(function PipeEdge({
   data,
   selected,
   markerEnd,
+  style: extraStyle,
 }: EdgeProps<DiagramEdge>) {
   const lineType = data?.lineType ?? "process";
-  const style = LINE_STYLES[lineType];
+  const lineStyle = LINE_STYLES[lineType];
 
   const [path, labelX, labelY] = getSmoothStepPath({
     sourceX,
@@ -34,8 +35,14 @@ export const PipeEdge = memo(function PipeEdge({
     borderRadius: 8,
   });
 
-  const stroke = selected ? "#7dd3fc" : style.stroke;
-  const strokeWidth = (style.strokeWidth ?? 2) + (selected ? 0.5 : 0);
+  // Caller-supplied style (e.g. the analysis route preview) can override the
+  // computed stroke / width / opacity for dimming or highlighting.
+  const stroke =
+    (extraStyle?.stroke as string | undefined) ??
+    (selected ? "#7dd3fc" : lineStyle.stroke);
+  const strokeWidth =
+    (extraStyle?.strokeWidth as number | undefined) ??
+    (lineStyle.strokeWidth ?? 2) + (selected ? 0.5 : 0);
 
   return (
     <>
@@ -46,12 +53,13 @@ export const PipeEdge = memo(function PipeEdge({
         style={{
           stroke,
           strokeWidth,
-          strokeDasharray: style.strokeDasharray,
+          strokeDasharray: lineStyle.strokeDasharray,
           fill: "none",
+          ...extraStyle,
         }}
       />
       {/* Pneumatic-style hash overlay: stroke a dashed copy with short on/long off */}
-      {style.pattern === "hash" && (
+      {lineStyle.pattern === "hash" && (
         <path
           d={path}
           fill="none"
@@ -59,6 +67,7 @@ export const PipeEdge = memo(function PipeEdge({
           strokeWidth={strokeWidth + 4}
           strokeDasharray="1 12"
           strokeLinecap="butt"
+          style={{ opacity: extraStyle?.opacity }}
         />
       )}
       {data?.tag && (

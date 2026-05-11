@@ -311,7 +311,18 @@ function buildResult(args: {
     .filter((c) => c.kind !== "pump")
     .reduce((acc, c) => acc + c.headM, 0);
 
-  const sampleQs = sampleRange(0, m3hToM3s(MAX_PROBE_QM3H), 60);
+  // The system curve typically scales with Q² (turbulent friction), so a flat
+  // uniform sweep across 0–MAX_PROBE leaves only one or two samples inside the
+  // tight operating region where the curves actually cross. Bias the samples
+  // so ~3/4 of them land in the focus zone (around the operating point /
+  // achievable flow), and the rest fan out for context when the user pans/zooms.
+  const focusQM3s = computeFocusQM3s(qM3s, feasibility);
+  const sampleQs = focusedSamples(
+    0,
+    m3hToM3s(MAX_PROBE_QM3H),
+    focusQM3s,
+    240,
+  );
   const pumpCurveSampled: PumpCurvePoint[] = pumpCurve
     ? sampleQs.map((q) => ({
         q: m3sToM3h(q),
@@ -391,8 +402,46 @@ function findRoot(f: (q: number) => number, hiM3s: number): number {
   return 0.5 * (lo + hi);
 }
 
-function sampleRange(lo: number, hi: number, n: number): number[] {
-  const out: number[] = [];
-  for (let i = 0; i <= n; i++) out.push(lo + (i / n) * (hi - lo));
-  return out;
+/**
+ * Pick a "focus" flow (m³/s) for biased sample density: the operating point if
+ * we have one, otherwise the achievable-flow ceiling from inverse mode, with a
+ * gentle floor so we still sample sensibly when the pump can't establish flow
+ * at all.
+ */
+function computeFocusQM3s(qM3s: number, feasibility: FeasibilityReport): number {
+  if (qM3s > 0) return qM3s;
+  if (feasibility.maxAchievableQM3h && feasibility.maxAchievableQM3h > 0) {
+    return m3hToM3s(feasibility.maxAchievableQM3h);
+  }
+  // Infeasible case: a small floor so we still see some curve resolution.
+  return m3hToM3s(20);
+}
+
+/**
+ * Build a non-uniform sample set across [lo, hi]: about 75% of the samples are
+ * packed into [lo, 2·focus] (clamped to hi) so the chart picks up the curve's
+ * real shape around the operating region, and the remaining 25% fan out
+ * uniformly across the rest of the range for context.
+ */
+function focusedSamples(
+  lo: number,
+  hi: number,
+  focus: number,
+  total: number,
+): number[] {
+  const focusEnd = Math.min(hi, Math.max(focus * 2, hi * 0.02));
+  const focusN = Math.max(8, Math.floor(total * 0.75));
+  const wideN = Math.max(8, total - focusN);
+
+  const out = new Set<number>();
+  out.add(lo);
+  for (let i = 1; i <= focusN; i++) {
+    out.add(lo + (i / focusN) * (focusEnd - lo));
+  }
+  if (focusEnd < hi) {
+    for (let i = 1; i <= wideN; i++) {
+      out.add(focusEnd + (i / wideN) * (hi - focusEnd));
+    }
+  }
+  return [...out].sort((a, b) => a - b);
 }

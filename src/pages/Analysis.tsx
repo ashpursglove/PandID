@@ -1,15 +1,4 @@
 import { useMemo, useState } from "react";
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ReferenceDot,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { AlertTriangle, HelpCircle, Info, Play } from "lucide-react";
 
 import { useDiagramStore } from "@/store/diagramStore";
@@ -21,6 +10,8 @@ import type { SinglePathResult } from "@/engine/types";
 import { TextInput } from "@/components/Inspector/fields/TextInput";
 import { Select } from "@/components/Inspector/fields/Select";
 import { PresetDropdown } from "@/components/Inspector/PresetDropdown";
+import { PumpSystemChart } from "@/components/Analysis/PumpSystemChart";
+import { RoutePreview } from "@/components/Analysis/RoutePreview";
 import {
   FLUID_CATEGORY_OPTIONS,
   type FluidCategoryId,
@@ -300,7 +291,13 @@ export function Analysis() {
         </div>
       </aside>
 
-      <main className="flex flex-1 flex-col overflow-hidden">
+      <main className="flex flex-1 flex-col overflow-y-auto">
+        <RoutePreview
+          nodes={nodes}
+          edges={edges}
+          startId={startId}
+          endId={endId}
+        />
         {result ? <ResultView result={result} mode={mode} /> : <EmptyState />}
       </main>
     </div>
@@ -315,7 +312,7 @@ function ResultView({
   mode: Mode;
 }) {
   return (
-    <div className="flex h-full flex-col overflow-y-auto">
+    <div className="flex flex-col">
       <PlainEnglishSummary result={result} mode={mode} />
 
       <div className="grid grid-cols-4 gap-2 border-b border-zinc-800 p-3 text-xs">
@@ -347,9 +344,11 @@ function ResultView({
           <HelpHint text="The pump curve shows how much head it produces at each flow. The system curve shows how much head the pipes need at each flow. Where they cross is the operating point." />
         </h3>
         <p className="mb-2 text-[11px] leading-relaxed text-zinc-500">
-          The yellow dot marks the operating point — where the two curves meet.
+          The yellow dot marks the operating point — where the two curves
+          meet. Scroll over the chart to zoom, drag to pan, double-click to
+          reset.
         </p>
-        <div className="h-64">
+        <div className="h-72">
           <PumpSystemChart result={result} />
         </div>
       </section>
@@ -593,92 +592,6 @@ function HelpHint({ text }: { text: string }) {
   );
 }
 
-function PumpSystemChart({ result }: { result: SinglePathResult }) {
-  const data: { q: number; pump?: number; system?: number }[] = [];
-  const map = new Map<number, { q: number; pump?: number; system?: number }>();
-  for (const p of result.pumpCurveSampled) {
-    const key = Number(p.q.toFixed(2));
-    map.set(key, { ...(map.get(key) ?? { q: key }), pump: p.h });
-  }
-  for (const p of result.systemCurveSampled) {
-    const key = Number(p.q.toFixed(2));
-    map.set(key, { ...(map.get(key) ?? { q: key }), system: p.h });
-  }
-  for (const [, v] of [...map.entries()].sort((a, b) => a[0] - b[0])) {
-    data.push(v);
-  }
-
-  return (
-    <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={data} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
-        <CartesianGrid stroke="#27272a" strokeDasharray="2 3" />
-        <XAxis
-          dataKey="q"
-          type="number"
-          domain={[0, "dataMax"]}
-          stroke="#71717a"
-          tick={{ fill: "#a1a1aa", fontSize: 11 }}
-          label={{
-            value: "Q (m³/h)",
-            position: "insideBottom",
-            offset: -2,
-            fill: "#71717a",
-            fontSize: 11,
-          }}
-        />
-        <YAxis
-          stroke="#71717a"
-          tick={{ fill: "#a1a1aa", fontSize: 11 }}
-          label={{
-            value: "H (m)",
-            angle: -90,
-            position: "insideLeft",
-            fill: "#71717a",
-            fontSize: 11,
-          }}
-        />
-        <Tooltip
-          contentStyle={{
-            background: "#18181b",
-            border: "1px solid #3f3f46",
-            color: "#e4e4e7",
-            fontSize: 11,
-          }}
-          formatter={(v: number) => (typeof v === "number" ? v.toFixed(2) : v)}
-        />
-        <Legend wrapperStyle={{ fontSize: 11 }} />
-        <Line
-          type="monotone"
-          dataKey="pump"
-          name="Pump"
-          stroke="#7dd3fc"
-          dot={false}
-          strokeWidth={2}
-          connectNulls
-        />
-        <Line
-          type="monotone"
-          dataKey="system"
-          name="System"
-          stroke="#fda4af"
-          dot={false}
-          strokeWidth={2}
-          connectNulls
-        />
-        {result.qM3h > 0 && (
-          <ReferenceDot
-            x={result.qM3h}
-            y={result.pumpHeadM}
-            r={5}
-            fill="#fde047"
-            stroke="#000"
-          />
-        )}
-      </LineChart>
-    </ResponsiveContainer>
-  );
-}
-
 function ComponentsTable({ result }: { result: SinglePathResult }) {
   return (
     <div className="overflow-x-auto rounded border border-zinc-800">
@@ -772,7 +685,7 @@ function StatCard({
 
 function EmptyState() {
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center text-zinc-400">
+    <div className="flex min-h-[40vh] flex-1 flex-col items-center justify-center gap-4 px-6 text-center text-zinc-400">
       <Play size={28} className="text-zinc-700" />
       <div className="max-w-lg space-y-2">
         <p className="text-base text-zinc-200">
