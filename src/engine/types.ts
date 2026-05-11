@@ -73,6 +73,27 @@ export interface ComponentLoss {
   velocityMs?: number;
 }
 
+/** Why the operating point we returned isn't physically achievable, if so. */
+export type InfeasibilityReason =
+  | "no-pump"
+  | "shutoff-below-static"
+  | "no-intersection"
+  | "pump-undersized";
+
+export interface FeasibilityReport {
+  /** True when the operating point can actually be delivered by this pump. */
+  ok: boolean;
+  reason?: InfeasibilityReason;
+  /** Human-readable explanation suitable for the analysis UI. */
+  message?: string;
+  /** Maximum flow the pump can actually establish through this path (m³/h). */
+  maxAchievableQM3h?: number;
+  /** Pump head supplied at the requested operating point (m). */
+  availablePumpHeadM?: number;
+  /** System head required at that flow (m), including elevation. */
+  requiredHeadM?: number;
+}
+
 export interface SinglePathResult {
   /** Operating volumetric flow (m³/s). */
   qM3s: number;
@@ -82,6 +103,8 @@ export interface SinglePathResult {
   systemHeadM: number;
   /** Pump head supplied (m). */
   pumpHeadM: number;
+  /** Pump shut-off head (m) — i.e. head at Q=0. Zero if no pump. */
+  pumpShutoffHeadM: number;
   /** Static elevation difference end - start (m). */
   elevationDeltaM: number;
   /** Per-component breakdown, in path order. */
@@ -92,4 +115,6 @@ export interface SinglePathResult {
   systemCurveSampled: PumpCurvePoint[];
   /** Diagnostic warnings (e.g. "no pump in path"). */
   warnings: string[];
+  /** Whether the reported flow is actually physically achievable. */
+  feasibility: FeasibilityReport;
 }

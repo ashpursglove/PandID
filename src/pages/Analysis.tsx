@@ -396,6 +396,30 @@ function PlainEnglishSummary({
   const sysH = result.systemHeadM;
   const elev = result.elevationDeltaM;
   const direction = elev > 0.05 ? "climb" : elev < -0.05 ? "drop" : "level run";
+  const feas = result.feasibility;
+
+  if (feas && !feas.ok) {
+    return (
+      <section className="border-b border-red-900/70 bg-red-950/30 p-3">
+        <div className="flex items-start gap-2">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-red-400" />
+          <div className="flex flex-col gap-1 text-sm leading-relaxed text-red-100">
+            <p className="font-semibold text-red-200">
+              {infeasibleHeadline(feas.reason)}
+            </p>
+            {feas.message && (
+              <p className="text-[12px] leading-relaxed text-red-100/90">
+                {feas.message}
+              </p>
+            )}
+            <p className="text-[12px] text-red-200/80">
+              {feasibilityFigures(result)}
+            </p>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   const lead =
     mode === "forward"
@@ -422,6 +446,31 @@ function PlainEnglishSummary({
       </div>
     </section>
   );
+}
+
+function infeasibleHeadline(reason: SinglePathResult["feasibility"]["reason"]): string {
+  switch (reason) {
+    case "no-pump":
+      return "No pump in the path";
+    case "shutoff-below-static":
+      return "Pump can't lift the fluid";
+    case "no-intersection":
+      return "Pump is too small for this system";
+    case "pump-undersized":
+      return "Pump can't deliver the requested flow";
+    default:
+      return "Not physically achievable";
+  }
+}
+
+function feasibilityFigures(result: SinglePathResult): string {
+  const parts: string[] = [];
+  parts.push(`Pump shut-off head: ${result.pumpShutoffHeadM.toFixed(2)} m`);
+  parts.push(`Static lift on this path: ${result.elevationDeltaM.toFixed(2)} m`);
+  const max = result.feasibility.maxAchievableQM3h;
+  if (typeof max === "number")
+    parts.push(`Max achievable flow: ${max.toFixed(2)} m³/h`);
+  return parts.join("  •  ");
 }
 
 function flowRegime(re: number | null | undefined): {

@@ -25,6 +25,7 @@ import {
   type PumpPresetValues,
   type PumpTierId,
   pumpPresetsForTier,
+  synthesizeCentrifugalCurve,
 } from "@/presets/pumps";
 import { VALVE_PRESETS, type ValvePreset } from "@/presets/valves";
 import {
@@ -205,7 +206,76 @@ function renderNodePresets(
   return null;
 }
 
+type PumpDefMode = "catalogue" | "duty-point";
+
 function PumpPresetSection({
+  params,
+  setParams,
+}: {
+  params: Record<string, unknown>;
+  setParams: (next: Record<string, unknown>) => void;
+}) {
+  const mode: PumpDefMode =
+    (params.pumpDefinitionMode as PumpDefMode | undefined) ?? "catalogue";
+
+  return (
+    <Section title="Pump definition">
+      <div className="flex gap-1 rounded-md border border-zinc-800 bg-[var(--color-panel-2)] p-0.5">
+        <ModeTab
+          label="From catalogue"
+          active={mode === "catalogue"}
+          onClick={() =>
+            setParams({ ...params, pumpDefinitionMode: "catalogue" })
+          }
+        />
+        <ModeTab
+          label="Custom duty point"
+          active={mode === "duty-point"}
+          onClick={() =>
+            setParams({
+              ...params,
+              pumpDefinitionMode: "duty-point",
+              pumpPresetId: undefined,
+            })
+          }
+        />
+      </div>
+
+      {mode === "catalogue" ? (
+        <PumpCataloguePicker params={params} setParams={setParams} />
+      ) : (
+        <PumpDutyPointForm params={params} setParams={setParams} />
+      )}
+    </Section>
+  );
+}
+
+function ModeTab({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex-1 rounded px-2 py-1 text-[11px] font-medium transition",
+        active
+          ? "bg-zinc-700 text-zinc-50"
+          : "text-zinc-400 hover:text-zinc-200",
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+function PumpCataloguePicker({
   params,
   setParams,
 }: {
@@ -229,7 +299,7 @@ function PumpPresetSection({
   }));
 
   return (
-    <Section title="Pump preset">
+    <>
       <label className="flex flex-col gap-1">
         <span className="px-1 text-[11px] font-medium text-zinc-400">
           Duty class
@@ -255,7 +325,7 @@ function PumpPresetSection({
       </label>
       <label className="flex flex-col gap-1">
         <span className="px-1 text-[11px] font-medium text-zinc-400">
-          Curve / rating
+          Model / rating
         </span>
         <PresetDropdown
           items={items}
@@ -268,22 +338,143 @@ function PumpPresetSection({
               ...item.values,
               pumpPresetId: item.id,
               pumpPresetTier: full?.tier ?? tier,
+              pumpDefinitionMode: "catalogue",
             });
           }}
-          onClear={() =>
-            setParams({
-              ...params,
-              pumpPresetId: undefined,
-            })
-          }
+          onClear={() => setParams({ ...params, pumpPresetId: undefined })}
         />
       </label>
-      <p className="px-1 text-[10px] text-zinc-500">
-        Pick a class, then a specific curve. Adjust numbers below to match your
-        datasheet.
+      <p className="px-1 text-[10px] leading-snug text-zinc-500">
+        Pick a class then a specific rating. Selecting a preset overwrites the
+        rated point and curve. Switch to <em>Custom duty point</em> if your
+        actual pump doesn't match any of the presets.
       </p>
-    </Section>
+    </>
   );
+}
+
+function PumpDutyPointForm({
+  params,
+  setParams,
+}: {
+  params: Record<string, unknown>;
+  setParams: (next: Record<string, unknown>) => void;
+}) {
+  const ratedQ = numberOrDefault(params.ratedFlowM3H, 50);
+  const ratedH = numberOrDefault(params.ratedHeadM, 30);
+  const shutoffH = numberOrDefault(
+    params.shutoffHeadM,
+    Math.round(ratedH * 1.25 * 10) / 10,
+  );
+  const shutoffAuto = params.shutoffHeadMOverride !== true;
+
+  function regenerate(next: {
+    ratedFlowM3H?: number;
+    ratedHeadM?: number;
+    shutoffHeadM?: number;
+    shutoffHeadMOverride?: boolean;
+  }) {
+    const q = next.ratedFlowM3H ?? ratedQ;
+    const h = next.ratedHeadM ?? ratedH;
+    const overrideFlag =
+      next.shutoffHeadMOverride ?? (params.shutoffHeadMOverride as boolean | undefined);
+    const sh =
+      next.shutoffHeadM ??
+      (overrideFlag ? shutoffH : Math.round(h * 1.25 * 10) / 10);
+    setParams({
+      ...params,
+      pumpDefinitionMode: "duty-point",
+      pumpPresetId: undefined,
+      ratedFlowM3H: q,
+      ratedHeadM: h,
+      shutoffHeadM: sh,
+      shutoffHeadMOverride: overrideFlag,
+      curve: synthesizeCentrifugalCurve(q, h, sh),
+    });
+  }
+
+  return (
+    <>
+      <DutyPointField
+        label="Rated flow"
+        unit="m³/h"
+        value={ratedQ}
+        onChange={(v) => regenerate({ ratedFlowM3H: v })}
+      />
+      <DutyPointField
+        label="Rated head"
+        unit="m"
+        value={ratedH}
+        onChange={(v) => regenerate({ ratedHeadM: v })}
+      />
+      <DutyPointField
+        label="Shut-off head"
+        unit="m"
+        hint={shutoffAuto ? "auto (1.25 × rated)" : undefined}
+        value={shutoffH}
+        onChange={(v) =>
+          regenerate({ shutoffHeadM: v, shutoffHeadMOverride: true })
+        }
+      />
+      {!shutoffAuto && (
+        <button
+          type="button"
+          onClick={() =>
+            regenerate({
+              shutoffHeadM: Math.round(ratedH * 1.25 * 10) / 10,
+              shutoffHeadMOverride: false,
+            })
+          }
+          className="self-start px-1 text-[10px] text-sky-400 hover:text-sky-300"
+        >
+          ↺ reset shut-off to 1.25 × rated
+        </button>
+      )}
+      <p className="px-1 text-[10px] leading-snug text-zinc-500">
+        Enter the duty point and we'll synthesise a typical centrifugal curve
+        (parabolic-ish, runout at ~1.5 × rated flow). The full curve still
+        appears below in <em>Pump curve</em> if you want to tweak individual
+        points.
+      </p>
+    </>
+  );
+}
+
+function DutyPointField({
+  label,
+  unit,
+  hint,
+  value,
+  onChange,
+}: {
+  label: string;
+  unit: string;
+  hint?: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="flex items-baseline justify-between px-1">
+        <span className="text-[11px] font-medium text-zinc-400">{label}</span>
+        {hint && <span className="text-[10px] text-zinc-600">{hint}</span>}
+      </span>
+      <TextInput
+        type="number"
+        unit={unit}
+        value={String(value)}
+        onChange={(v) => {
+          const n = Number.parseFloat(v);
+          if (Number.isFinite(n) && n > 0) onChange(n);
+        }}
+      />
+    </label>
+  );
+}
+
+function numberOrDefault(v: unknown, fallback: number): number {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  return fallback;
 }
 
 function FilterPresetSection({

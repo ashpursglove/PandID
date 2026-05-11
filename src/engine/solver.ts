@@ -8,6 +8,7 @@ import type {
   ComponentLoss,
   EngineFluid,
   EngineGraph,
+  FeasibilityReport,
   PumpCurvePoint,
   SinglePathResult,
 } from "./types";
@@ -66,10 +67,60 @@ function solveForward(
   warnings: string[],
 ): SinglePathResult {
   const elevationDelta = sumElevation(path);
+  const shutoffHead = pumpShutoffHead(pumpCurve);
+
+  if (!pumpCurve) {
+    return buildResult({
+      input,
+      path,
+      qM3s: 0,
+      pumpCurve,
+      warnings,
+      elevationDelta,
+      feasibility: {
+        ok: false,
+        reason: "no-pump",
+        message:
+          "No pump in the selected path, so the analyser can't determine an operating flow on its own.",
+        maxAchievableQM3h: 0,
+        availablePumpHeadM: 0,
+        requiredHeadM: elevationDelta,
+      },
+    });
+  }
+
+  // The pump can't even lift the static head — flow is zero in real life.
+  if (shutoffHead < elevationDelta - 1e-6) {
+    warnings.push(
+      `Pump shut-off head ${shutoffHead.toFixed(2)} m is below the ${elevationDelta.toFixed(
+        2,
+      )} m static lift on this path. Real flow is zero.`,
+    );
+    return buildResult({
+      input,
+      path,
+      qM3s: 0,
+      pumpCurve,
+      warnings,
+      elevationDelta,
+      feasibility: {
+        ok: false,
+        reason: "shutoff-below-static",
+        message: `The pump can produce at most ${shutoffHead.toFixed(
+          2,
+        )} m of head at zero flow, but the route climbs ${elevationDelta.toFixed(
+          2,
+        )} m. The pump can't lift the fluid that high, so no flow is established.`,
+        maxAchievableQM3h: 0,
+        availablePumpHeadM: shutoffHead,
+        requiredHeadM: elevationDelta,
+      },
+    });
+  }
 
   // f(Q) = pump head - (elevation gain + total head loss)
   const f = (qM3s: number) => {
-    const head = pumpCurve ? pumpCurve.headAtQM3s(qM3s) : 0;
+    const head = pumpCurve.headAtQM3s(qM3s);
     const lossHead = paToHead(
       totalLossPa(path, qM3s, input.fluid),
       input.fluid,
@@ -77,17 +128,28 @@ function solveForward(
     return head - (elevationDelta + lossHead);
   };
 
-  let qM3s = 0;
-  if (pumpCurve) {
-    qM3s = findRoot(f, m3hToM3s(MAX_PROBE_QM3H));
-    if (!Number.isFinite(qM3s)) {
-      warnings.push(
-        "Pump curve and system curve do not intersect within search range.",
-      );
-      qM3s = 0;
-    }
-  } else {
-    warnings.push("Without a pump, the operating point cannot be determined.");
+  const qM3s = findRoot(f, m3hToM3s(MAX_PROBE_QM3H));
+  if (!Number.isFinite(qM3s)) {
+    warnings.push(
+      "Pump curve and system curve don't intersect inside the search range — pump is undersized for this system.",
+    );
+    return buildResult({
+      input,
+      path,
+      qM3s: 0,
+      pumpCurve,
+      warnings,
+      elevationDelta,
+      feasibility: {
+        ok: false,
+        reason: "no-intersection",
+        message:
+          "The pump curve never crosses the system curve at any positive flow. Either the pump is undersized for this route, or the system has unusually high resistance.",
+        maxAchievableQM3h: 0,
+        availablePumpHeadM: shutoffHead,
+        requiredHeadM: elevationDelta,
+      },
+    });
   }
 
   return buildResult({
@@ -97,6 +159,7 @@ function solveForward(
     pumpCurve,
     warnings,
     elevationDelta,
+    feasibility: { ok: true },
   });
 }
 
@@ -109,7 +172,79 @@ function solveInverse(
   warnings: string[],
 ): SinglePathResult {
   const elevationDelta = sumElevation(path);
+  const shutoffHead = pumpShutoffHead(pumpCurve);
   const qM3s = m3hToM3s(Math.max(0, input.targetQM3h));
+
+  const requiredHead =
+    elevationDelta +
+    paToHead(totalLossPa(path, qM3s, input.fluid), input.fluid);
+
+  let feasibility: FeasibilityReport = { ok: true, requiredHeadM: requiredHead };
+
+  if (pumpCurve) {
+    const availableHead = Math.max(0, pumpCurve.headAtQM3s(qM3s));
+    feasibility = {
+      ok: true,
+      availablePumpHeadM: availableHead,
+      requiredHeadM: requiredHead,
+    };
+
+    // Max achievable Q for this pump on this path (where curves cross).
+    const fIntersect = (q: number) => {
+      const h = pumpCurve.headAtQM3s(q);
+      const losses = paToHead(totalLossPa(path, q, input.fluid), input.fluid);
+      return h - (elevationDelta + losses);
+    };
+    let maxAchievable = 0;
+    if (shutoffHead > elevationDelta) {
+      const root = findRoot(fIntersect, m3hToM3s(MAX_PROBE_QM3H));
+      if (Number.isFinite(root)) maxAchievable = m3sToM3h(root);
+    }
+    feasibility.maxAchievableQM3h = maxAchievable;
+
+    if (shutoffHead < elevationDelta - 1e-6) {
+      warnings.push(
+        `Pump shut-off head ${shutoffHead.toFixed(2)} m is below the ${elevationDelta.toFixed(
+          2,
+        )} m static lift — no real flow is possible with this pump.`,
+      );
+      feasibility = {
+        ok: false,
+        reason: "shutoff-below-static",
+        message: `Even at zero flow the pump only produces ${shutoffHead.toFixed(
+          2,
+        )} m of head, but the route needs at least ${elevationDelta.toFixed(
+          2,
+        )} m just to overcome elevation. This duty point is not achievable with this pump.`,
+        availablePumpHeadM: shutoffHead,
+        requiredHeadM: requiredHead,
+        maxAchievableQM3h: 0,
+      };
+    } else if (availableHead + 1e-6 < requiredHead) {
+      warnings.push(
+        `Pump is undersized at this flow: produces ${availableHead.toFixed(
+          2,
+        )} m but the system needs ${requiredHead.toFixed(2)} m.`,
+      );
+      feasibility = {
+        ok: false,
+        reason: "pump-undersized",
+        message: `At ${input.targetQM3h.toFixed(
+          1,
+        )} m³/h the pump delivers about ${availableHead.toFixed(
+          2,
+        )} m of head, but the route needs ${requiredHead.toFixed(
+          2,
+        )} m. The pump curve sits below the system curve, so this flow can't be reached in steady state. The actual operating flow would settle near ${maxAchievable.toFixed(
+          1,
+        )} m³/h.`,
+        availablePumpHeadM: availableHead,
+        requiredHeadM: requiredHead,
+        maxAchievableQM3h: maxAchievable,
+      };
+    }
+  }
+
   return buildResult({
     input,
     path,
@@ -117,6 +252,7 @@ function solveInverse(
     pumpCurve,
     warnings,
     elevationDelta,
+    feasibility,
   });
 }
 
@@ -129,8 +265,10 @@ function buildResult(args: {
   pumpCurve: PumpCurveFn | null;
   warnings: string[];
   elevationDelta: number;
+  feasibility: FeasibilityReport;
 }): SinglePathResult {
-  const { input, path, qM3s, pumpCurve, warnings, elevationDelta } = args;
+  const { input, path, qM3s, pumpCurve, warnings, elevationDelta, feasibility } =
+    args;
   const components: ComponentLoss[] = [];
 
   for (const step of path) {
@@ -168,14 +306,17 @@ function buildResult(args: {
   }
 
   const pumpHeadM = pumpCurve ? pumpCurve.headAtQM3s(qM3s) : 0;
+  const pumpShutoffHeadM = pumpShutoffHead(pumpCurve);
   const systemHeadM = components
     .filter((c) => c.kind !== "pump")
     .reduce((acc, c) => acc + c.headM, 0);
 
-  // Sample curves for the chart
   const sampleQs = sampleRange(0, m3hToM3s(MAX_PROBE_QM3H), 60);
   const pumpCurveSampled: PumpCurvePoint[] = pumpCurve
-    ? sampleQs.map((q) => ({ q: m3sToM3h(q), h: pumpCurve.headAtQM3s(q) }))
+    ? sampleQs.map((q) => ({
+        q: m3sToM3h(q),
+        h: Math.max(0, pumpCurve.headAtQM3s(q)),
+      }))
     : [];
   const systemCurveSampled: PumpCurvePoint[] = sampleQs.map((q) => {
     const lossHead = paToHead(totalLossPa(path, q, input.fluid), input.fluid);
@@ -187,15 +328,22 @@ function buildResult(args: {
     qM3h: m3sToM3h(qM3s),
     systemHeadM,
     pumpHeadM,
+    pumpShutoffHeadM,
     elevationDeltaM: elevationDelta,
     components,
     pumpCurveSampled,
     systemCurveSampled,
     warnings,
+    feasibility,
   };
 }
 
 /* ----- Helpers ---------------------------------------------------------- */
+
+function pumpShutoffHead(curve: PumpCurveFn | null): number {
+  if (!curve) return 0;
+  return Math.max(0, curve.headAtQM3s(0));
+}
 
 function sumElevation(path: PathStep[]): number {
   let total = 0;
@@ -236,7 +384,7 @@ function findRoot(f: (q: number) => number, hiM3s: number): number {
   for (let i = 0; i < 80; i++) {
     const mid = 0.5 * (lo + hi);
     const fMid = f(mid);
-    if (Math.abs(fMid) < 1e-3 || (hi - lo) < 1e-8) return mid;
+    if (Math.abs(fMid) < 1e-3 || hi - lo < 1e-8) return mid;
     if (Math.sign(fMid) === Math.sign(fLo)) lo = mid;
     else hi = mid;
   }
