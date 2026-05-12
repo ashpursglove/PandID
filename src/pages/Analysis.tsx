@@ -776,7 +776,7 @@ function ComponentRow({ c }: { c: SinglePathResult["components"][number] }) {
     <>
       <tr className="border-t border-zinc-800 text-zinc-300 odd:bg-zinc-950 even:bg-[var(--color-panel)]">
         <td className="px-2 py-1 font-medium text-zinc-100">{c.label}</td>
-        <td className="px-2 py-1 capitalize">{c.kind}</td>
+        <td className="px-2 py-1">{displayKind(c.kind)}</td>
         <td className="px-2 py-1 text-right">
           {(c.deltaPpa / 1e5).toFixed(4)}
         </td>
@@ -1032,4 +1032,29 @@ function ModeChoice({
 function parseFinite(v: string, fallback: number): number {
   const n = Number.parseFloat(v);
   return Number.isFinite(n) ? n : fallback;
+}
+
+/**
+ * Friendly label for a component breakdown row. The engine reports the raw
+ * dispatch key ("pump", "valve", "fitting", "passive", "vessel", "pipe") —
+ * we want the analysis table to read naturally, especially for the catch-all
+ * "passive" bucket (typically heat exchangers in this codebase).
+ */
+function displayKind(kind: SinglePathResult["components"][number]["kind"]): string {
+  switch (kind) {
+    case "pump":
+      return "Pump";
+    case "valve":
+      return "Valve";
+    case "pipe":
+      return "Pipe";
+    case "fitting":
+      return "Fitting";
+    case "vessel":
+      return "Vessel";
+    case "passive":
+      return "Equipment";
+    default:
+      return kind;
+  }
 }

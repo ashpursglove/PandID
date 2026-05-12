@@ -8,10 +8,21 @@
   --color-accent: #7dd3fc;
 }
 
+/* Bundle Inter so the app and the exported PDFs share an identical typeface,
+ * regardless of which system fonts each platform ships. The TTF is a single
+ * variable font (opsz + wght) which covers every weight we use. */
+@font-face {
+  font-family: "Inter";
+  src: url("./assets/fonts/Inter.ttf") format("truetype-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+
 :root {
   color-scheme: dark;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 html,

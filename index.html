@@ -3,9 +3,170 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PandID</title>
+    <title>Ash's P&amp;ID Playground</title>
+    <style>
+      /*
+       * Splash screen rendered before the React bundle parses. Lives entirely
+       * in inline CSS / SVG so the first paint is < 100ms even on a cold
+       * launch — no font loads, no JS, no network. `main.tsx` removes it
+       * once the editor is mounted.
+       */
+      html,
+      body {
+        margin: 0;
+        background: #0b1220;
+      }
+
+      #splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        background:
+          radial-gradient(
+            1200px 700px at 50% 20%,
+            rgba(125, 211, 252, 0.08),
+            transparent 60%
+          ),
+          linear-gradient(180deg, #0b1220 0%, #111827 100%);
+        color: #e2e8f0;
+        font-family:
+          "Inter",
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+        transition: opacity 260ms ease 60ms;
+      }
+
+      #splash.is-hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .splash-logo-wrap {
+        width: 128px;
+        height: 128px;
+        border-radius: 28px;
+        background: linear-gradient(180deg, #0b1220 0%, #111827 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow:
+          0 12px 40px rgba(125, 211, 252, 0.15),
+          0 0 0 1px rgba(125, 211, 252, 0.18) inset;
+      }
+
+      .splash-logo {
+        width: 92px;
+        height: 92px;
+        stroke: #7dd3fc;
+        stroke-width: 2.6;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        filter: drop-shadow(0 0 12px rgba(125, 211, 252, 0.35));
+        animation: splash-pulse 2.2s ease-in-out infinite;
+      }
+
+      @keyframes splash-pulse {
+        0%,
+        100% {
+          opacity: 0.78;
+          transform: scale(0.96);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.02);
+        }
+      }
+
+      .splash-title {
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.012em;
+        color: #f1f5f9;
+        margin-top: 0.25rem;
+      }
+
+      .splash-subtitle {
+        font-size: 12px;
+        color: #94a3b8;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .splash-progress {
+        margin-top: 0.5rem;
+        width: 180px;
+        height: 2px;
+        background: rgba(148, 163, 184, 0.16);
+        border-radius: 999px;
+        overflow: hidden;
+        position: relative;
+      }
+
+      .splash-progress::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        width: 40%;
+        background: linear-gradient(
+          90deg,
+          rgba(125, 211, 252, 0),
+          rgba(125, 211, 252, 1),
+          rgba(125, 211, 252, 0)
+        );
+        animation: splash-progress 1.6s ease-in-out infinite;
+      }
+
+      @keyframes splash-progress {
+        0% {
+          transform: translateX(-100%);
+        }
+        100% {
+          transform: translateX(350%);
+        }
+      }
+
+      .splash-hint {
+        position: absolute;
+        bottom: 24px;
+        font-size: 10.5px;
+        color: #64748b;
+        letter-spacing: 0.04em;
+      }
+    </style>
   </head>
   <body class="bg-zinc-950 text-zinc-100 antialiased">
+    <!-- Splash: identical geometry to the .ico so the loading screen and the
+         taskbar icon feel like the same thing. -->
+    <div id="splash" role="status" aria-label="Loading Ash's P&amp;ID Playground">
+      <div class="splash-logo-wrap">
+        <svg
+          class="splash-logo"
+          viewBox="0 0 64 64"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
+        >
+          <circle cx="32" cy="32" r="18" />
+          <path d="M 32 14 L 47.59 41 L 16.41 41 Z" />
+          <line x1="32" y1="2" x2="32" y2="14" />
+          <line x1="32" y1="50" x2="32" y2="62" />
+        </svg>
+      </div>
+      <div class="splash-title">Ash&rsquo;s P&amp;ID Playground</div>
+      <div class="splash-subtitle">Starting up</div>
+      <div class="splash-progress" aria-hidden="true"></div>
+      <div class="splash-hint">Local P&amp;ID editor &amp; hydraulic analysis</div>
+    </div>
+
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

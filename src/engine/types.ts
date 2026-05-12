@@ -3,7 +3,7 @@
  * adapter that converts DiagramNode/DiagramEdge into these shapes.
  */
 
-import type { EngineModel } from "@/symbols/types";
+import type { EngineModel, HydraulicsHint } from "@/symbols/types";
 import type { LineType } from "@/types/diagram";
 
 export interface EngineFluid {
@@ -39,6 +39,15 @@ export interface EngineNode {
   tag?: string;
   /** Raw user-edited parameters (pump curve, Cv, volume, …). */
   params: Record<string, unknown>;
+  /** Symbol's catalogue label, e.g. "Y-strainer". Used as a fallback when
+   *  no user tag is set so the analysis breakdown still reads as English. */
+  symbolLabel?: string;
+  /** Effective inner diameter of the pipe(s) this node is connected to. The
+   *  K-based loss model auto-sizes itself to this when the user hasn't
+   *  overridden the connection ID on the component. */
+  connectionIdMm?: number;
+  /** Type-level hydraulic defaults from the symbol registry. */
+  hydraulics?: HydraulicsHint;
 }
 
 export interface EnginePipeEdge {

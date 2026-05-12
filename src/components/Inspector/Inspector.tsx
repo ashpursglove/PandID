@@ -6,6 +6,7 @@ import { useProjectStore } from "@/store/projectStore";
 import { getSymbol } from "@/symbols/registry";
 import { LINE_STYLES, LINE_TYPE_ORDER } from "@/symbols/lines/lineStyles";
 import type { LineType, PipeEdgeData } from "@/types/diagram";
+import { describeEffectiveHydraulics } from "@/engine/effective";
 import { cn } from "@/lib/utils";
 
 import { ParamField } from "./ParamField";
@@ -92,6 +93,7 @@ function Section({
 
 function NodeForm({ nodeId }: { nodeId: string }) {
   const node = useDiagramStore((s) => s.nodes.find((n) => n.id === nodeId));
+  const edges = useDiagramStore((s) => s.edges);
   const updateNodeData = useDiagramStore((s) => s.updateNodeData);
 
   if (!node) return null;
@@ -105,6 +107,9 @@ function NodeForm({ nodeId }: { nodeId: string }) {
   }
 
   const params = (node.data.params ?? {}) as Record<string, unknown>;
+  const effective = symbol.hydraulics
+    ? describeEffectiveHydraulics(node, edges)
+    : null;
 
   return (
     <>
@@ -159,7 +164,30 @@ function NodeForm({ nodeId }: { nodeId: string }) {
           ))}
         </Section>
       )}
+
+      {effective && <EffectiveHydraulicsHint info={effective} />}
     </>
+  );
+}
+
+function EffectiveHydraulicsHint({
+  info,
+}: {
+  info: NonNullable<ReturnType<typeof describeEffectiveHydraulics>>;
+}) {
+  return (
+    <Section title="Effective hydraulics">
+      <div className="rounded-md border border-zinc-800 bg-[var(--color-panel-2)] p-2 text-[11px] leading-snug text-zinc-300">
+        <div>{info.description}</div>
+        <div className="mt-1 text-[10px] text-zinc-500">
+          Sees{" "}
+          {info.connectionIdManual
+            ? `manual ID ${Math.round(info.connectionIdMm)} mm`
+            : `connected pipe (≈ DN${Math.round(info.connectionIdMm)})`}
+          {info.isAuto && ". Override any field above to pin a custom value."}
+        </div>
+      </div>
+    </Section>
   );
 }
 

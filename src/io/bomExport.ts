@@ -63,6 +63,14 @@ function buildBomCsv(input: BomExportInput): string {
       ]),
     );
   }
+  lines.push("");
+  lines.push("PIPE FITTINGS");
+  lines.push(toCsvRow(["#", "Description", "Material", "Size", "Qty"]));
+  for (const r of bom.fittings) {
+    lines.push(
+      toCsvRow([r.itemNo, r.description, r.material, r.size, r.totalCount]),
+    );
+  }
   return lines.join("\n");
 }
 

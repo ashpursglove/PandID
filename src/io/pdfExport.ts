@@ -12,6 +12,7 @@ import type { ProjectMeta } from "@/store/projectStore";
 import type { DiagramEdge, DiagramNode } from "@/store/diagramStore";
 
 import { renderDrawingSvg } from "./svgRender";
+import { ensureInterFont } from "./pdfFonts";
 import { isTauriRuntime } from "./runtime";
 
 export interface PdfExportInput {
@@ -42,6 +43,7 @@ async function buildPdfBuffer(input: PdfExportInput): Promise<ArrayBuffer> {
       unit: "mm",
       format: "a3",
     });
+    await ensureInterFont(doc);
     await svg2pdf(svgEl, doc, { x: 0, y: 0, width: 420, height: 297 });
     return doc.output("arraybuffer");
   } finally {

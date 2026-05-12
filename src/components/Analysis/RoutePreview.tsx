@@ -289,7 +289,7 @@ function PreviewNode({
           y={size.height + 12}
           textAnchor="middle"
           fontSize={11}
-          fontFamily="Helvetica, Arial, sans-serif"
+          fontFamily="Inter, Helvetica, Arial, sans-serif"
           fontWeight={isEndpoint ? 600 : 400}
           fill={labelColor}
         >

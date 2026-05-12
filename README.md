@@ -1,4 +1,4 @@
-# PandID
+# Ash's P&ID Playground
 
 A local desktop P&ID editor and hydraulic analysis tool.
 

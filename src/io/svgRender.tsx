@@ -338,7 +338,7 @@ function renderNodeTag(
   const fontSize = Math.max(2.6, Math.min(4.5, size.height * scale * 0.18));
   const ty = cy + fontSize + 0.4;
   const fill = override ?? TAG_INK;
-  return `<text x="${cx.toFixed(3)}" y="${ty.toFixed(3)}" text-anchor="middle" font-size="${fontSize.toFixed(2)}" font-family="Helvetica, Arial, sans-serif" fill="${fill}" pointer-events="none">${escapeText(tag)}</text>`;
+  return `<text x="${cx.toFixed(3)}" y="${ty.toFixed(3)}" text-anchor="middle" font-size="${fontSize.toFixed(2)}" font-family="Inter, Helvetica, Arial, sans-serif" fill="${fill}" pointer-events="none">${escapeText(tag)}</text>`;
 }
 
 /**
@@ -439,7 +439,7 @@ function renderEdgeLabel(
   const mx = ((s.x + t.x) / 2) * scale + offsetX;
   const my = ((s.y + t.y) / 2) * scale + offsetY - 1;
   const fill = override ?? TAG_INK;
-  return `<text x="${mx}" y="${my}" font-size="2.4" font-family="Helvetica, Arial, sans-serif" text-anchor="middle" fill="${fill}" pointer-events="none">${escapeText(tag)}</text>`;
+  return `<text x="${mx}" y="${my}" font-size="2.4" font-family="Inter, Helvetica, Arial, sans-serif" text-anchor="middle" fill="${fill}" pointer-events="none">${escapeText(tag)}</text>`;
 }
 
 /* ----- SVG primitives --------------------------------------------------- */
@@ -456,7 +456,7 @@ export function textAt(
   anchor: "start" | "middle" | "end" = "start",
   bold = false,
 ): string {
-  return `<text x="${x}" y="${y}" font-size="${size}" font-family="Helvetica, Arial, sans-serif" text-anchor="${anchor}" ${
+  return `<text x="${x}" y="${y}" font-size="${size}" font-family="Inter, Helvetica, Arial, sans-serif" text-anchor="${anchor}" ${
     bold ? 'font-weight="600"' : ""
   } fill="#0f172a">${escapeText(text)}</text>`;
 }

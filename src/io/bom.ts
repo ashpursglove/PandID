@@ -5,6 +5,7 @@ import {
   PIPE_NOMINAL_OPTIONS,
   type PipeMaterialId,
 } from "@/presets/pipes";
+import { FITTING_PRESETS } from "@/components/Inspector/fields/FittingsEditor";
 
 export interface EquipmentBomRow {
   id: string;
@@ -30,14 +31,29 @@ export interface PipeBomRow {
   remarks?: string;
 }
 
+export interface FittingBomRow {
+  id: string;
+  itemNo: number;
+  description: string;
+  kind: string;
+  /** Pipe size the fittings live on (e.g. "DN50"). */
+  size?: string;
+  /** Pipe material the fittings live on (e.g. "PVC"). */
+  material?: string;
+  totalCount: number;
+}
+
 export interface BomData {
   equipment: EquipmentBomRow[];
   pipes: PipeBomRow[];
+  fittings: FittingBomRow[];
 }
 
 /** Build a BOM from the live diagram. Equipment is grouped per node (tag-level
- * detail), and pipes are aggregated by material × nominal-size since multiple
- * physical segments of the same spec usually merge in procurement.
+ * detail), pipes are aggregated by material × nominal-size, and fittings
+ * (elbows, tees, gate valves…) are aggregated by kind × pipe-spec — that's the
+ * grouping procurement actually cares about because a 90° elbow on DN50 PVC is
+ * not the same part as one on DN80 steel.
  */
 export function buildBom(
   nodes: DiagramNode[],
@@ -46,7 +62,8 @@ export function buildBom(
 ): BomData {
   const equipment = buildEquipmentRows(nodes);
   const pipes = options.includePipes ? buildPipeRows(edges) : [];
-  return { equipment, pipes };
+  const fittings = options.includePipes ? buildFittingRows(edges) : [];
+  return { equipment, pipes, fittings };
 }
 
 function buildEquipmentRows(nodes: DiagramNode[]): EquipmentBomRow[] {
@@ -89,6 +106,24 @@ function buildEquipmentRows(nodes: DiagramNode[]): EquipmentBomRow[] {
   return [...byKey.values()];
 }
 
+function pipeSpecLabels(pipe: NonNullable<DiagramEdge["data"]>["pipe"]): {
+  material: string;
+  size: string;
+} {
+  const p = pipe ?? {};
+  const materialId = p.presetMaterialId as PipeMaterialId | undefined;
+  const nominalId = p.presetNominalId as string | undefined;
+  const material =
+    PIPE_MATERIAL_OPTIONS.find((m) => m.id === materialId)?.label ??
+    "Unspecified";
+  const size =
+    PIPE_NOMINAL_OPTIONS.find((s) => s.id === nominalId)?.label ??
+    (p.innerDiameterMm
+      ? `⌀ ${Number(p.innerDiameterMm).toFixed(1)} mm ID`
+      : "—");
+  return { material, size };
+}
+
 function buildPipeRows(edges: DiagramEdge[]): PipeBomRow[] {
   const byKey = new Map<string, PipeBomRow>();
   let itemNo = 0;
@@ -96,16 +131,7 @@ function buildPipeRows(edges: DiagramEdge[]): PipeBomRow[] {
     const lineType = e.data?.lineType ?? "process";
     if (lineType !== "process") continue; // utility / electrical aren't pipe BOM
     const pipe = e.data?.pipe ?? {};
-    const materialId = pipe.presetMaterialId as PipeMaterialId | undefined;
-    const nominalId = pipe.presetNominalId as string | undefined;
-    const materialLabel =
-      PIPE_MATERIAL_OPTIONS.find((m) => m.id === materialId)?.label ??
-      "Unspecified";
-    const sizeLabel =
-      PIPE_NOMINAL_OPTIONS.find((s) => s.id === nominalId)?.label ??
-      (pipe.innerDiameterMm
-        ? `⌀ ${Number(pipe.innerDiameterMm).toFixed(1)} mm ID`
-        : "—");
+    const { material: materialLabel, size: sizeLabel } = pipeSpecLabels(pipe);
     const key = `${materialLabel}::${sizeLabel}`;
     const len = Number(pipe.lengthM ?? 0);
     const existing = byKey.get(key);
@@ -127,6 +153,51 @@ function buildPipeRows(edges: DiagramEdge[]): PipeBomRow[] {
     }
   }
   return [...byKey.values()];
+}
+
+function buildFittingRows(edges: DiagramEdge[]): FittingBomRow[] {
+  const byKey = new Map<string, FittingBomRow>();
+  let itemNo = 0;
+  for (const e of edges) {
+    const lineType = e.data?.lineType ?? "process";
+    if (lineType !== "process") continue;
+    const pipe = e.data?.pipe ?? {};
+    const fittings = pipe.fittings ?? [];
+    if (fittings.length === 0) continue;
+    const { material, size } = pipeSpecLabels(pipe);
+    for (const f of fittings) {
+      const count = Math.max(1, Math.round(Number(f.count ?? 1)));
+      const preset = FITTING_PRESETS.find((p) => p.kind === f.kind);
+      const description = preset?.label ?? prettifyKind(f.kind);
+      const key = `${f.kind}::${material}::${size}`;
+      const existing = byKey.get(key);
+      if (existing) {
+        existing.totalCount += count;
+      } else {
+        itemNo += 1;
+        byKey.set(key, {
+          id: key,
+          itemNo,
+          description,
+          kind: f.kind,
+          size,
+          material,
+          totalCount: count,
+        });
+      }
+    }
+  }
+  return [...byKey.values()].sort((a, b) =>
+    a.description.localeCompare(b.description),
+  );
+}
+
+function prettifyKind(kind: string): string {
+  return kind
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 function formatSize(

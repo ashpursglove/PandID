@@ -100,7 +100,7 @@ export function Toolbar() {
     <header className="flex h-12 shrink-0 items-center justify-between border-b border-zinc-800 bg-[var(--color-panel)] px-3">
       <div className="flex items-center gap-2">
         <span className="text-sm font-semibold tracking-tight text-zinc-100">
-          PandID
+          Ash&rsquo;s P&amp;ID Playground
         </span>
         <span className="text-xs text-zinc-500">
           {meta.title}

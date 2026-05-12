@@ -8,6 +8,7 @@ import type {
   ComponentLoss,
   EngineFluid,
   EngineGraph,
+  EngineNode,
   FeasibilityReport,
   PumpCurvePoint,
   SinglePathResult,
@@ -17,7 +18,8 @@ import { extractPath, type PathStep } from "./path";
 import { m3hToM3s, m3sToM3h, paToHead } from "./fluid";
 import { buildPumpCurve, type PumpCurveFn } from "./models/pump";
 import { pipeLoss } from "./models/pipe";
-import { valveDeltaP } from "./models/valve";
+import { valveLoss } from "./models/valve";
+import { fittingNodeLoss } from "./models/fitting";
 
 export interface SolveInput {
   graph: EngineGraph;
@@ -274,24 +276,46 @@ function buildResult(args: {
   for (let i = 0; i < path.length; i++) {
     const step = path[i];
     const nextStep = path[i + 1];
-    if (step.node.engineModel === "pump" && pumpCurve) {
+    const node = step.node;
+    if (node.engineModel === "pump" && pumpCurve) {
       const head = pumpCurve.headAtQM3s(qM3s);
       components.push({
-        nodeId: step.node.id,
-        label: step.node.tag ?? step.node.id,
+        nodeId: node.id,
+        label: nodeLabel(node),
         kind: "pump",
         deltaPpa: -head * input.fluid.densityKgM3 * 9.80665, // negative = adds head
         headM: -head,
       });
-    } else if (step.node.engineModel === "valve") {
-      const dp = valveDeltaP(step.node, qM3s, input.fluid);
-      components.push({
-        nodeId: step.node.id,
-        label: step.node.tag ?? step.node.id,
-        kind: "valve",
-        deltaPpa: dp,
-        headM: paToHead(dp, input.fluid),
-      });
+    } else if (node.engineModel === "valve") {
+      const out = valveLoss(node, qM3s, input.fluid);
+      if (out.deltaPpa !== 0 || out.source !== "none") {
+        components.push({
+          nodeId: node.id,
+          label: nodeLabel(node),
+          kind: "valve",
+          deltaPpa: out.deltaPpa,
+          headM: paToHead(out.deltaPpa, input.fluid),
+        });
+      }
+    } else if (
+      node.engineModel === "fitting" ||
+      node.engineModel === "passive" ||
+      node.engineModel === "vessel"
+    ) {
+      // Filters, strainers, static mixers, heat exchangers, vessels, ... all
+      // share the same generic K / fixed-ΔP path. We only emit a row when the
+      // device actually impedes flow so passive flow-through nodes (instrument
+      // tap points, off-page connectors, simple vessels) stay invisible.
+      const out = fittingNodeLoss(node, qM3s, input.fluid);
+      if (out.source !== "none" && out.deltaPpa > 0) {
+        components.push({
+          nodeId: node.id,
+          label: nodeLabel(node),
+          kind: node.engineModel,
+          deltaPpa: out.deltaPpa,
+          headM: paToHead(out.deltaPpa, input.fluid),
+        });
+      }
     }
     if (step.edge && nextStep) {
       const loss = pipeLoss(step.edge, qM3s, input.fluid);
@@ -392,11 +416,36 @@ function totalLossPa(
       const loss = pipeLoss(step.edge, qM3s, fluid);
       total += loss.frictionPa + loss.fittingsPa; // elevation kept separate
     }
-    if (step.node.engineModel === "valve") {
-      total += valveDeltaP(step.node, qM3s, fluid);
-    }
+    total += componentDeltaPpa(step.node, qM3s, fluid);
   }
   return total;
+}
+
+/**
+ * Dispatch a single node to the right loss model. Everything that isn't a
+ * pump (handled separately) or a pure pass-through node funnels through here
+ * so the forward / inverse solvers see the *same* system curve that the
+ * per-component breakdown reports.
+ */
+function componentDeltaPpa(
+  node: EngineNode,
+  qM3s: number,
+  fluid: EngineFluid,
+): number {
+  switch (node.engineModel) {
+    case "valve":
+      return valveLoss(node, qM3s, fluid).deltaPpa;
+    case "fitting":
+    case "passive":
+    case "vessel":
+      return fittingNodeLoss(node, qM3s, fluid).deltaPpa;
+    default:
+      return 0;
+  }
+}
+
+function nodeLabel(node: EngineNode): string {
+  return node.tag ?? node.symbolLabel ?? node.id;
 }
 
 function findRoot(f: (q: number) => number, hiM3s: number): number {

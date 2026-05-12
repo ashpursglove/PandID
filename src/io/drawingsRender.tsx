@@ -251,14 +251,24 @@ function renderAnalysisFirstPage(a: AnalysisSnapshot): string {
     ),
   );
 
-  // ----- Top row: route preview + operating-point cards -----------------
+  // ----- Top row: route preview + pump/system chart + operating-point cards
+  // 3-column band at 70mm tall. Route preview anchors the left, the chart
+  // takes the middle (so the visual story sits together: "here's the path,
+  // here's how it behaves"), and the KPI cards live on the right as a
+  // 2-col × 3-row stack.
   const topRowY = top + 12;
-  const previewW = innerW * 0.46;
+  const gap = 3;
+  const colW = (innerW - 2 * gap) / 3;
+  const previewW = colW;
+  const chartW = colW;
+  const cardsW = innerW - previewW - chartW - 2 * gap;
   const previewH = 70;
   parts.push(renderRoutePreviewBlock(a, startX, topRowY, previewW, previewH));
 
-  const cardsX = startX + previewW + 4;
-  const cardsW = innerW - previewW - 4;
+  const chartX = startX + previewW + gap;
+  parts.push(renderPumpSystemChartBlock(a, chartX, topRowY, chartW, previewH));
+
+  const cardsX = chartX + chartW + gap;
   parts.push(
     renderOperatingPointCards(r, a, cardsX, topRowY, cardsW, previewH),
   );
@@ -402,6 +412,239 @@ function renderOperatingPointCards(
   return parts.join("");
 }
 
+/* ----- Pump vs System chart (static SVG) -------------------------------- */
+
+type Domain = [number, number];
+
+/** Replicates the PumpSystemChart computeNaturalDomains so the drawing
+ *  matches what the user saw in the live Analysis tab. */
+function computeChartDomains(r: SinglePathResult): { x: Domain; y: Domain } {
+  const opQ = Math.max(0, r.qM3h);
+  const opH = Math.max(0, r.pumpHeadM);
+  const shutoff = Math.max(0, r.pumpShutoffHeadM);
+  const elev = Math.max(0, r.elevationDeltaM);
+  const maxAchievable = Math.max(0, r.feasibility.maxAchievableQM3h ?? 0);
+  const pumpEnd = lastNonZeroQ(r.pumpCurveSampled);
+
+  let xMax = 0;
+  if (opQ > 0) xMax = opQ * 1.6;
+  else if (maxAchievable > 0) xMax = maxAchievable * 1.6;
+  else if (shutoff > 0 && pumpEnd > 0) xMax = pumpEnd * 1.05;
+  if (!Number.isFinite(xMax) || xMax <= 0) xMax = 10;
+  xMax = niceCeil(xMax);
+
+  let yMax = Math.max(opH * 1.3, shutoff * 1.15, elev * 1.4, r.systemHeadM * 1.3, 2);
+  if (!Number.isFinite(yMax) || yMax <= 0) yMax = 10;
+  yMax = niceCeil(yMax);
+
+  return { x: [0, xMax], y: [0, yMax] };
+}
+
+function lastNonZeroQ(points: { q: number; h: number }[]): number {
+  let last = 0;
+  for (const p of points) {
+    if (p.h > 0.05) last = p.q;
+  }
+  return last;
+}
+
+function niceCeil(v: number): number {
+  if (!Number.isFinite(v) || v <= 0) return 1;
+  const mag = 10 ** Math.floor(Math.log10(v));
+  const norm = v / mag;
+  const step = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
+  return step * mag;
+}
+
+/** Produce 4–6 "nice" tick values across the domain (Wilkinson-style but
+ *  cheap: just pick 1/2/5 × 10^n that gives the right tick count). */
+function niceTicks(min: number, max: number, target = 5): number[] {
+  const range = Math.max(1e-9, max - min);
+  const rough = range / target;
+  const mag = 10 ** Math.floor(Math.log10(rough));
+  const norm = rough / mag;
+  const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
+  const start = Math.ceil(min / step) * step;
+  const ticks: number[] = [];
+  for (let v = start; v <= max + 1e-9; v += step) {
+    ticks.push(Number(v.toFixed(10)));
+  }
+  return ticks;
+}
+
+function fmtNumber(v: number): string {
+  if (!Number.isFinite(v)) return "";
+  const abs = Math.abs(v);
+  if (abs >= 100) return v.toFixed(0);
+  if (abs >= 10) return v.toFixed(1);
+  return v.toFixed(2);
+}
+
+function renderPumpSystemChartBlock(
+  a: AnalysisSnapshot,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): string {
+  const r = a.result;
+  const parts: string[] = [];
+
+  parts.push(
+    `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="#f8fafc" stroke="#cbd5e1" stroke-width="0.3" rx="1.5" />`,
+  );
+  parts.push(textAt(x + 2, y + 4, "Pump vs system curve", 2.6, "start", true));
+
+  // Inline legend along the title row, right-aligned.
+  const legendY = y + 3.3;
+  const legendItems = [
+    { label: "Pump", color: "#0284c7" },
+    { label: "System", color: "#e11d48" },
+  ];
+  let lx = x + w - 2;
+  for (let i = legendItems.length - 1; i >= 0; i--) {
+    const item = legendItems[i];
+    parts.push(
+      `<text x="${lx.toFixed(2)}" y="${(legendY + 1).toFixed(2)}" font-size="2.1" font-family="Inter, Helvetica, Arial, sans-serif" fill="#475569" text-anchor="end">${escapeText(item.label)}</text>`,
+    );
+    lx -= item.label.length * 1.1 + 1;
+    parts.push(
+      `<line x1="${(lx - 4).toFixed(2)}" y1="${(legendY).toFixed(2)}" x2="${lx.toFixed(2)}" y2="${(legendY).toFixed(2)}" stroke="${item.color}" stroke-width="0.8" />`,
+    );
+    lx -= 6;
+  }
+
+  // Inner plot area.
+  const ml = 12; // left axis room
+  const mr = 3;
+  const mt = 7;
+  const mb = 9;
+  const px = x + ml;
+  const py = y + mt;
+  const pw = w - ml - mr;
+  const ph = h - mt - mb;
+
+  if (r.pumpCurveSampled.length === 0 && r.systemCurveSampled.length === 0) {
+    parts.push(
+      textAt(
+        x + w / 2,
+        y + h / 2,
+        "(no curve data available)",
+        2.6,
+        "middle",
+      ),
+    );
+    return parts.join("");
+  }
+
+  const { x: xDom, y: yDom } = computeChartDomains(r);
+  const sx = (q: number) => px + ((q - xDom[0]) / (xDom[1] - xDom[0])) * pw;
+  const sy = (head: number) =>
+    py + ph - ((head - yDom[0]) / (yDom[1] - yDom[0])) * ph;
+
+  // Plot background + gridlines.
+  parts.push(
+    `<rect x="${px.toFixed(2)}" y="${py.toFixed(2)}" width="${pw.toFixed(2)}" height="${ph.toFixed(2)}" fill="#ffffff" stroke="#cbd5e1" stroke-width="0.25" />`,
+  );
+
+  const xTicks = niceTicks(xDom[0], xDom[1], 5);
+  const yTicks = niceTicks(yDom[0], yDom[1], 4);
+
+  for (const t of xTicks) {
+    const tx = sx(t);
+    parts.push(
+      `<line x1="${tx.toFixed(2)}" y1="${py.toFixed(2)}" x2="${tx.toFixed(2)}" y2="${(py + ph).toFixed(2)}" stroke="#e2e8f0" stroke-width="0.2" stroke-dasharray="0.4 0.6" />`,
+    );
+    parts.push(
+      `<text x="${tx.toFixed(2)}" y="${(py + ph + 3).toFixed(2)}" font-size="1.9" font-family="Inter, Helvetica, Arial, sans-serif" fill="#475569" text-anchor="middle">${escapeText(fmtNumber(t))}</text>`,
+    );
+  }
+  for (const t of yTicks) {
+    const ty = sy(t);
+    parts.push(
+      `<line x1="${px.toFixed(2)}" y1="${ty.toFixed(2)}" x2="${(px + pw).toFixed(2)}" y2="${ty.toFixed(2)}" stroke="#e2e8f0" stroke-width="0.2" stroke-dasharray="0.4 0.6" />`,
+    );
+    parts.push(
+      `<text x="${(px - 1).toFixed(2)}" y="${(ty + 0.7).toFixed(2)}" font-size="1.9" font-family="Inter, Helvetica, Arial, sans-serif" fill="#475569" text-anchor="end">${escapeText(fmtNumber(t))}</text>`,
+    );
+  }
+
+  // Axis titles.
+  parts.push(
+    `<text x="${(px + pw / 2).toFixed(2)}" y="${(py + ph + 6.5).toFixed(2)}" font-size="2.1" font-family="Inter, Helvetica, Arial, sans-serif" fill="#475569" text-anchor="middle">Q (m³/h)</text>`,
+  );
+  parts.push(
+    `<text x="${(px - 8).toFixed(2)}" y="${(py + ph / 2).toFixed(2)}" font-size="2.1" font-family="Inter, Helvetica, Arial, sans-serif" fill="#475569" text-anchor="middle" transform="rotate(-90 ${(px - 8).toFixed(2)} ${(py + ph / 2).toFixed(2)})">H (m)</text>`,
+  );
+
+  // Optional elevation reference line.
+  if (r.elevationDeltaM > 0.05 && r.elevationDeltaM >= yDom[0] && r.elevationDeltaM <= yDom[1]) {
+    const ey = sy(r.elevationDeltaM);
+    parts.push(
+      `<line x1="${px.toFixed(2)}" y1="${ey.toFixed(2)}" x2="${(px + pw).toFixed(2)}" y2="${ey.toFixed(2)}" stroke="#94a3b8" stroke-width="0.35" stroke-dasharray="1.2 1.2" />`,
+    );
+    parts.push(
+      `<text x="${(px + pw - 1).toFixed(2)}" y="${(ey - 0.8).toFixed(2)}" font-size="1.8" font-family="Inter, Helvetica, Arial, sans-serif" fill="#64748b" text-anchor="end">Static lift ${r.elevationDeltaM.toFixed(1)} m</text>`,
+    );
+  }
+
+  // Curves: pump (cyan) and system (rose). Clip to the plot region so the
+  // system curve doesn't shoot off the chart with Q² losses.
+  const clipId = `pidchart-${Math.floor(Math.random() * 1e9).toString(36)}`;
+  parts.push(
+    `<defs><clipPath id="${clipId}"><rect x="${px.toFixed(2)}" y="${py.toFixed(2)}" width="${pw.toFixed(2)}" height="${ph.toFixed(2)}" /></clipPath></defs>`,
+  );
+
+  const pumpPath = curveToPath(r.pumpCurveSampled, sx, sy);
+  const systemPath = curveToPath(r.systemCurveSampled, sx, sy);
+  if (pumpPath) {
+    parts.push(
+      `<path d="${pumpPath}" fill="none" stroke="#0284c7" stroke-width="0.6" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#${clipId})" />`,
+    );
+  }
+  if (systemPath) {
+    parts.push(
+      `<path d="${systemPath}" fill="none" stroke="#e11d48" stroke-width="0.6" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#${clipId})" />`,
+    );
+  }
+
+  // Operating point dot — only meaningful when there's a real flow.
+  if (r.qM3h > 0) {
+    const ox = sx(r.qM3h);
+    const oy = sy(r.pumpHeadM);
+    parts.push(
+      `<circle cx="${ox.toFixed(2)}" cy="${oy.toFixed(2)}" r="1.3" fill="#fde047" stroke="#0f172a" stroke-width="0.3" />`,
+    );
+    parts.push(
+      `<text x="${(ox + 2).toFixed(2)}" y="${(oy - 0.6).toFixed(2)}" font-size="2.0" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="600" fill="#0f172a">${escapeText(`Q=${r.qM3h.toFixed(2)} m³/h, H=${r.pumpHeadM.toFixed(2)} m`)}</text>`,
+    );
+  }
+
+  return parts.join("");
+}
+
+function curveToPath(
+  points: { q: number; h: number }[],
+  sx: (q: number) => number,
+  sy: (h: number) => number,
+): string {
+  if (points.length === 0) return "";
+  const sorted = [...points].sort((a, b) => a.q - b.q);
+  const segs: string[] = [];
+  let pen = false;
+  for (const p of sorted) {
+    if (!Number.isFinite(p.h)) {
+      pen = false;
+      continue;
+    }
+    const X = sx(p.q).toFixed(2);
+    const Y = sy(p.h).toFixed(2);
+    segs.push(`${pen ? "L" : "M"}${X} ${Y}`);
+    pen = true;
+  }
+  return segs.join(" ");
+}
+
 function renderRoutePreviewBlock(
   a: AnalysisSnapshot,
   x: number,
@@ -528,7 +771,7 @@ function renderRoutePreviewBlock(
     const cy = (node.position.y + symbol.size.height) * scale + offY;
     const tag = node.data.tag ?? node.data.label ?? symbol.defaultLabel ?? "";
     parts.push(
-      `<text x="${cx.toFixed(3)}" y="${(cy + 2.4).toFixed(3)}" font-size="2.3" font-family="Helvetica, Arial, sans-serif" text-anchor="middle" font-weight="600" fill="#b45309">${escapeText(tag)}</text>`,
+      `<text x="${cx.toFixed(3)}" y="${(cy + 2.4).toFixed(3)}" font-size="2.3" font-family="Inter, Helvetica, Arial, sans-serif" text-anchor="middle" font-weight="600" fill="#b45309">${escapeText(tag)}</text>`,
     );
   }
 
@@ -587,11 +830,11 @@ function renderComponentTable(
   cols.forEach((c) => {
     const tx = c.align === "end" ? cx + c.w - 1.5 : cx + 1.5;
     parts.push(
-      `<text x="${tx}" y="${y + 3.6}" font-size="2.3" font-family="Helvetica, Arial, sans-serif" font-weight="600" fill="#e2e8f0" text-anchor="${c.align}">${escapeText(c.label.toUpperCase())}</text>`,
+      `<text x="${tx}" y="${y + 3.6}" font-size="2.3" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="600" fill="#e2e8f0" text-anchor="${c.align}">${escapeText(c.label.toUpperCase())}</text>`,
     );
     if (c.unit) {
       parts.push(
-        `<text x="${tx}" y="${y + 6}" font-size="1.8" font-family="Helvetica, Arial, sans-serif" fill="#64748b" text-anchor="${c.align}">${escapeText(c.unit)}</text>`,
+        `<text x="${tx}" y="${y + 6}" font-size="1.8" font-family="Inter, Helvetica, Arial, sans-serif" fill="#64748b" text-anchor="${c.align}">${escapeText(c.unit)}</text>`,
       );
     }
     cx += c.w;
@@ -648,7 +891,7 @@ function renderComponentTable(
       const tx =
         col.align === "end" ? cx + col.w - 1.5 : cx + 1.5;
       parts.push(
-        `<text x="${tx}" y="${rowY + 3.8}" font-size="2.5" font-family="Helvetica, Arial, sans-serif" ${
+        `<text x="${tx}" y="${rowY + 3.8}" font-size="2.5" font-family="Inter, Helvetica, Arial, sans-serif" ${
           v.bold ? 'font-weight="600"' : ""
         } fill="#0f172a" text-anchor="${col.align}">${escapeText(v.text)}</text>`,
       );
@@ -715,7 +958,7 @@ function renderRegimeBadge(
   const h = 3.4;
   return (
     `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${w.toFixed(2)}" height="${h}" rx="1" fill="${fill}" stroke="${stroke}" stroke-width="0.3" />` +
-    `<text x="${(x + w / 2).toFixed(2)}" y="${(y + 2.4).toFixed(2)}" font-size="2.1" font-family="Helvetica, Arial, sans-serif" font-weight="600" fill="${stroke}" text-anchor="middle">${escapeText(label)}</text>`
+    `<text x="${(x + w / 2).toFixed(2)}" y="${(y + 2.4).toFixed(2)}" font-size="2.1" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="600" fill="${stroke}" text-anchor="middle">${escapeText(label)}</text>`
   );
 }
 
@@ -728,7 +971,7 @@ function renderLossBreakdownBlock(
   w: number,
 ) {
   out.push(
-    `<text x="${x}" y="${y + 2.2}" font-size="2.0" font-family="Helvetica, Arial, sans-serif" font-weight="600" fill="#64748b" letter-spacing="0.4">${escapeText("LOSS BREAKDOWN")}</text>`,
+    `<text x="${x}" y="${y + 2.2}" font-size="2.0" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="600" fill="#64748b" letter-spacing="0.4">${escapeText("LOSS BREAKDOWN")}</text>`,
   );
   const lines: { label: string; v?: number }[] = [
     { label: "Friction (pipe wall)", v: c.frictionHeadM },
@@ -749,7 +992,7 @@ function renderLossBreakdownBlock(
     const pct =
       c.headM !== 0 ? ` (${Math.round((ln.v / c.headM) * 100)} %)` : "";
     out.push(
-      `<text x="${x}" y="${cy}" font-size="2.2" font-family="Helvetica, Arial, sans-serif" fill="#475569">${escapeText(ln.label)}</text>`,
+      `<text x="${x}" y="${cy}" font-size="2.2" font-family="Inter, Helvetica, Arial, sans-serif" fill="#475569">${escapeText(ln.label)}</text>`,
     );
     out.push(
       `<text x="${x + w - 1}" y="${cy}" font-size="2.2" font-family="Courier, monospace" fill="#0f172a" text-anchor="end">${escapeText(sign + mag + " m" + pct)}</text>`,
@@ -767,7 +1010,7 @@ function renderPipeGeometryBlock(
   w: number,
 ) {
   out.push(
-    `<text x="${x}" y="${y + 2.2}" font-size="2.0" font-family="Helvetica, Arial, sans-serif" font-weight="600" fill="#64748b" letter-spacing="0.4">${escapeText("PIPE GEOMETRY")}</text>`,
+    `<text x="${x}" y="${y + 2.2}" font-size="2.0" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="600" fill="#64748b" letter-spacing="0.4">${escapeText("PIPE GEOMETRY")}</text>`,
   );
   const rows: { label: string; value: string }[] = [
     {
@@ -797,21 +1040,35 @@ function renderPipeGeometryBlock(
   let cy = y + 5.5;
   for (const r of rows) {
     out.push(
-      `<text x="${x}" y="${cy}" font-size="2.2" font-family="Helvetica, Arial, sans-serif" fill="#64748b">${escapeText(r.label)}</text>`,
+      `<text x="${x}" y="${cy}" font-size="2.2" font-family="Inter, Helvetica, Arial, sans-serif" fill="#64748b">${escapeText(r.label)}</text>`,
     );
     out.push(
-      `<text x="${x + 22}" y="${cy}" font-size="2.2" font-family="Helvetica, Arial, sans-serif" font-weight="600" fill="#0f172a">${escapeText(r.value)}</text>`,
+      `<text x="${x + 22}" y="${cy}" font-size="2.2" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="600" fill="#0f172a">${escapeText(r.value)}</text>`,
     );
     cy += 3.4;
   }
 }
 
 function prettyKind(kind: string): string {
-  if (kind === "pipe") return "Pipe";
-  return kind
-    .split("-")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
+  switch (kind) {
+    case "pump":
+      return "Pump";
+    case "valve":
+      return "Valve";
+    case "pipe":
+      return "Pipe";
+    case "fitting":
+      return "Fitting";
+    case "vessel":
+      return "Vessel";
+    case "passive":
+      return "Equipment";
+    default:
+      return kind
+        .split("-")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+  }
 }
 
 /* --------------------------- BOM page ----------------------------------- */
@@ -832,7 +1089,7 @@ function renderBomPageBody(page: DrawingPage, ctx: PageRenderContext): string {
     textAt(
       startX,
       cursorY,
-      `${bom.equipment.length} equipment items · ${bom.pipes.length} pipe specs`,
+      `${bom.equipment.length} equipment items · ${bom.pipes.length} pipe specs · ${bom.fittings.length} fitting types`,
       3,
     ),
   );
@@ -926,6 +1183,46 @@ function renderBomPageBody(page: DrawingPage, ctx: PageRenderContext): string {
         break;
       }
     }
+    cursorY += 4;
+  }
+
+  if (cfg.includePipes && bom.fittings.length > 0 && cursorY < PAGE_H - 90) {
+    const fittingCols = [
+      { label: "#", w: tableW * 0.04 },
+      { label: "Description", w: tableW * 0.42 },
+      { label: "Material", w: tableW * 0.2 },
+      { label: "Size", w: tableW * 0.18 },
+      { label: "Qty", w: tableW * 0.16 },
+    ];
+    cursorY = drawTableHeader(
+      lines,
+      startX,
+      cursorY,
+      "Pipe fittings",
+      fittingCols.map((c) => c.label),
+      fittingCols.map((c) => c.w),
+    );
+    for (const row of bom.fittings) {
+      cursorY = drawTableRow(
+        lines,
+        startX,
+        cursorY,
+        [
+          String(row.itemNo),
+          row.description,
+          row.material ?? "—",
+          row.size ?? "—",
+          String(row.totalCount),
+        ],
+        fittingCols.map((c) => c.w),
+        eqRowH,
+        row.itemNo % 2 === 0,
+      );
+      if (cursorY > PAGE_H - 70) {
+        lines.push(textAt(startX, cursorY + 2, "… truncated to fit page", 2.6));
+        break;
+      }
+    }
   }
 
   return `<g>${lines.join("")}</g>`;
@@ -994,7 +1291,7 @@ function renderAnnotations(anns: Annotation[]): string {
       // Hanging baseline so the text starts AT the click point (top-left),
       // not above it — keeping the preview and the PDF visually aligned.
       parts.push(
-        `<text x="${a.x}" y="${a.y}" font-size="${fontSize}" font-family="Helvetica, Arial, sans-serif" fill="#0f172a" dominant-baseline="hanging">${escapeText(a.text ?? "")}</text>`,
+        `<text x="${a.x}" y="${a.y}" font-size="${fontSize}" font-family="Inter, Helvetica, Arial, sans-serif" fill="#0f172a" dominant-baseline="hanging">${escapeText(a.text ?? "")}</text>`,
       );
     } else if (a.kind === "note") {
       const fontSize = a.fontSize ?? 3.2;
@@ -1009,7 +1306,7 @@ function renderAnnotations(anns: Annotation[]): string {
       );
       lines.forEach((l, i) => {
         parts.push(
-          `<text x="${a.x + padding}" y="${a.y + padding + i * (fontSize + 0.6)}" font-size="${fontSize}" font-family="Helvetica, Arial, sans-serif" fill="#0f172a" dominant-baseline="hanging">${escapeText(l)}</text>`,
+          `<text x="${a.x + padding}" y="${a.y + padding + i * (fontSize + 0.6)}" font-size="${fontSize}" font-family="Inter, Helvetica, Arial, sans-serif" fill="#0f172a" dominant-baseline="hanging">${escapeText(l)}</text>`,
         );
       });
     } else if (a.kind === "arrow" && a.x2 != null && a.y2 != null) {

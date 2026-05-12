@@ -1,7 +1,7 @@
 [package]
 name = "pandid"
 version = "0.1.0"
-description = "PandID — local P&ID editor and analysis tool"
+description = "Ash's P&ID Playground — local P&ID editor and analysis tool"
 authors = ["you"]
 edition = "2021"
 
@@ -18,3 +18,8 @@ tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# Registry access for the Windows-only first-run file-association hook.
+# Bundled only on Windows targets so cargo check on macOS / Linux still passes.
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"

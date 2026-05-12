@@ -670,7 +670,7 @@ export function PagePreview({ page, pageNumber, totalPages }: Props) {
                   y={arrowDraft.y - 1.5}
                   fontSize={2.4}
                   fill="#0ea5e9"
-                  fontFamily="Helvetica, Arial, sans-serif"
+                  fontFamily="Inter, Helvetica, Arial, sans-serif"
                 >
                   click again for the arrow tip
                 </text>
@@ -805,7 +805,7 @@ function AnnotationLayer({
           x={ann.x}
           y={ann.y}
           fontSize={ann.fontSize ?? 4}
-          fontFamily="Helvetica, Arial, sans-serif"
+          fontFamily="Inter, Helvetica, Arial, sans-serif"
           fill="#0f172a"
           dominantBaseline="hanging"
           onMouseDown={onMouseDown}
@@ -856,7 +856,7 @@ function AnnotationLayer({
             x={ann.x + padding}
             y={ann.y + padding + i * (fontSize + 0.6)}
             fontSize={fontSize}
-            fontFamily="Helvetica, Arial, sans-serif"
+            fontFamily="Inter, Helvetica, Arial, sans-serif"
             fill="#0f172a"
             dominantBaseline="hanging"
             style={{ userSelect: "none" }}
@@ -904,7 +904,7 @@ function AnnotationLayer({
           x={(ann.x + x2) / 2}
           y={(ann.y + y2) / 2 - 1.2}
           fontSize={ann.fontSize ?? 3}
-          fontFamily="Helvetica, Arial, sans-serif"
+          fontFamily="Inter, Helvetica, Arial, sans-serif"
           fill="#0f172a"
           textAnchor="middle"
           style={{ userSelect: "none" }}

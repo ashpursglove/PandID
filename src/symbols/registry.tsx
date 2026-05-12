@@ -103,7 +103,11 @@ import { InstrumentBubble } from "@/symbols/instruments/InstrumentBubble";
 import { TapPoint } from "@/symbols/connectors/TapPoint";
 import { OffPageConnector, PipeTee } from "@/symbols/connectors/extra";
 
-import type { SymbolCategory, SymbolDef } from "@/symbols/types";
+import type {
+  HydraulicsHint,
+  SymbolCategory,
+  SymbolDef,
+} from "@/symbols/types";
 
 /** Ports shared across all simple inline (2-port) symbols. */
 const INLINE_PORTS = [
@@ -144,9 +148,19 @@ function instrumentSymbol(
   };
 }
 
-/** Generic Cv / open-fraction param schema used by every isolation valve. */
+/**
+ * Schema for valves whose loss is driven by a Cv (control valves, regulators,
+ * solenoids — anything where the manufacturer publishes a rated Cv).
+ */
 const VALVE_CV_SCHEMA = [
-  { key: "Cv", label: "Flow coefficient", unit: "Cv", kind: "number" as const, default: 50, min: 0 },
+  {
+    key: "Cv",
+    label: "Flow coefficient",
+    unit: "Cv",
+    kind: "number" as const,
+    min: 0,
+    description: "Rated Cv (US gpm/√psi). Leave blank to auto-size from K.",
+  },
   {
     key: "openFraction",
     label: "Open fraction",
@@ -158,6 +172,39 @@ const VALVE_CV_SCHEMA = [
   },
 ];
 
+/**
+ * Schema for isolation / specialty valves whose loss is driven by a
+ * dimensionless K. The K stays put as the user picks bigger or smaller pipes
+ * — only the velocity (taken from the connected pipe ID) changes.
+ */
+const VALVE_K_SCHEMA = [
+  {
+    key: "K",
+    label: "Loss coefficient K (full open)",
+    kind: "number" as const,
+    min: 0,
+    description:
+      "Leave blank to use the catalogue default for this valve type.",
+  },
+  {
+    key: "openFraction",
+    label: "Open fraction",
+    kind: "number" as const,
+    default: 1,
+    min: 0,
+    max: 1,
+    step: 0.05,
+  },
+  {
+    key: "innerDiameterMm",
+    label: "Connection ID override",
+    unit: "mm",
+    kind: "number" as const,
+    min: 1,
+    description: "Optional — defaults to the smallest connected pipe.",
+  },
+];
+
 /** Lightweight definition builder for inline valve / fitting glyphs. */
 function inlineValve(
   type: string,
@@ -165,6 +212,7 @@ function inlineValve(
   label: string,
   tagPrefix: string,
   Icon: SymbolDef["Icon"],
+  hydraulics: HydraulicsHint,
   opts: Partial<SymbolDef> = {},
 ): SymbolDef {
   return {
@@ -178,8 +226,9 @@ function inlineValve(
     engineModel: "valve",
     Icon,
     defaultLabel: `${tagPrefix}-101`,
-    paramSchema: VALVE_CV_SCHEMA,
-    defaultParams: { Cv: 50, openFraction: 1 },
+    paramSchema: VALVE_K_SCHEMA,
+    defaultParams: { openFraction: 1 },
+    hydraulics,
     ...opts,
   };
 }
@@ -189,6 +238,7 @@ function inlineFitting(
   subcategory: string,
   label: string,
   Icon: SymbolDef["Icon"],
+  hydraulics: HydraulicsHint | undefined,
   opts: Partial<SymbolDef> = {},
 ): SymbolDef {
   return {
@@ -201,6 +251,7 @@ function inlineFitting(
     engineModel: "fitting",
     Icon,
     defaultLabel: "",
+    hydraulics,
     ...opts,
   };
 }
@@ -210,6 +261,7 @@ function filterSymbol(
   label: string,
   tagPrefix: string,
   Icon: SymbolDef["Icon"],
+  hydraulics: HydraulicsHint,
   opts: Partial<SymbolDef> = {},
 ): SymbolDef {
   return {
@@ -222,24 +274,25 @@ function filterSymbol(
     engineModel: "fitting",
     Icon,
     defaultLabel: `${tagPrefix}-101`,
+    hydraulics,
     paramSchema: [
       {
         key: "K",
         label: "Loss coefficient K (clean)",
         kind: "number",
-        default: 5,
         min: 0,
+        description:
+          "Leave blank to use the catalogue default for this filter.",
       },
       {
         key: "innerDiameterMm",
-        label: "Connection ID",
+        label: "Connection ID override",
         unit: "mm",
         kind: "number",
-        default: 50,
         min: 1,
+        description: "Optional — defaults to the smallest connected pipe.",
       },
     ],
-    defaultParams: { K: 5, innerDiameterMm: 50 },
     ...opts,
   };
 }
@@ -638,9 +691,18 @@ export const SYMBOL_REGISTRY: Record<string, SymbolDef> = {
     defaultLabel: "E-101",
     paramSchema: [
       { key: "dutyKW", label: "Heat duty", unit: "kW", kind: "number", default: 100 },
-      { key: "deltaPbar", label: "ΔP (tube side)", unit: "bar", kind: "number", default: 0.3 },
+      {
+        key: "deltaPbar",
+        label: "ΔP (tube side)",
+        unit: "bar",
+        kind: "number",
+        min: 0,
+        description:
+          "Leave blank to use a typical 0.3 bar tube-side drop for this exchanger.",
+      },
     ],
-    defaultParams: { dutyKW: 100, deltaPbar: 0.3 },
+    defaultParams: { dutyKW: 100 },
+    hydraulics: { lossModel: "deltaP", defaultDeltaPbar: 0.3 },
   },
   "plate-heat-exchanger": {
     type: "plate-heat-exchanger",
@@ -658,7 +720,8 @@ export const SYMBOL_REGISTRY: Record<string, SymbolDef> = {
     engineModel: "passive",
     Icon: PlateHeatExchanger,
     defaultLabel: "E-201",
-    defaultParams: { dutyKW: 200, deltaPbar: 0.5 },
+    defaultParams: { dutyKW: 200 },
+    hydraulics: { lossModel: "deltaP", defaultDeltaPbar: 0.5 },
   },
   "air-cooled-exchanger": {
     type: "air-cooled-exchanger",
@@ -675,6 +738,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolDef> = {
     Icon: AirCooledExchanger,
     defaultLabel: "AC-101",
     defaultParams: { dutyKW: 500 },
+    hydraulics: { lossModel: "deltaP", defaultDeltaPbar: 0.1 },
   },
   "kettle-reboiler": {
     type: "kettle-reboiler",
@@ -693,6 +757,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolDef> = {
     Icon: KettleReboiler,
     defaultLabel: "E-301",
     defaultParams: { dutyKW: 800 },
+    hydraulics: { lossModel: "deltaP", defaultDeltaPbar: 0.3 },
   },
   "condenser": {
     type: "condenser",
@@ -711,6 +776,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolDef> = {
     Icon: Condenser,
     defaultLabel: "E-401",
     defaultParams: { dutyKW: 400 },
+    hydraulics: { lossModel: "deltaP", defaultDeltaPbar: 0.2 },
   },
   "fired-heater": {
     type: "fired-heater",
@@ -868,7 +934,24 @@ export const SYMBOL_REGISTRY: Record<string, SymbolDef> = {
     engineModel: "fitting",
     Icon: StaticMixer,
     defaultLabel: "MX-101",
-    defaultParams: { K: 8 },
+    paramSchema: [
+      {
+        key: "K",
+        label: "Loss coefficient K",
+        kind: "number",
+        min: 0,
+        description: "Leave blank to use the catalogue default for this mixer.",
+      },
+      {
+        key: "innerDiameterMm",
+        label: "Connection ID override",
+        unit: "mm",
+        kind: "number",
+        min: 1,
+        description: "Optional — defaults to the smallest connected pipe.",
+      },
+    ],
+    hydraulics: { lossModel: "k", defaultK: 8 },
   },
   "agitated-tank": {
     type: "agitated-tank",
@@ -891,36 +974,88 @@ export const SYMBOL_REGISTRY: Record<string, SymbolDef> = {
   // ===== VALVES ============================================================
 
   // Isolation
-  "gate-valve": inlineValve("gate-valve", "Isolation", "Gate valve", "GV", GateValve, {
-    defaultParams: { Cv: 90, openFraction: 1 },
-  }),
-  "ball-valve": inlineValve("ball-valve", "Isolation", "Ball valve", "BV", BallValve, {
-    defaultParams: { Cv: 120, openFraction: 1 },
-  }),
-  "butterfly-valve": inlineValve("butterfly-valve", "Isolation", "Butterfly valve", "BFV", ButterflyValve, {
-    defaultParams: { Cv: 250, openFraction: 1 },
-  }),
-  "plug-valve": inlineValve("plug-valve", "Isolation", "Plug valve", "PV", PlugValve, {
-    defaultParams: { Cv: 100, openFraction: 1 },
-  }),
-  "diaphragm-valve": inlineValve("diaphragm-valve", "Isolation", "Diaphragm valve", "DPV", DiaphragmValve, {
-    defaultParams: { Cv: 30, openFraction: 1 },
-  }),
-  "pinch-valve": inlineValve("pinch-valve", "Isolation", "Pinch valve", "PNV", PinchValve, {
-    defaultParams: { Cv: 35, openFraction: 1 },
-  }),
-  "needle-valve": inlineValve("needle-valve", "Isolation", "Needle valve", "NV", NeedleValve, {
-    defaultParams: { Cv: 1.5, openFraction: 1 },
-  }),
-  "hand-valve": inlineValve("hand-valve", "Isolation", "Hand valve (generic)", "HV", HandValve, {}),
+  "gate-valve": inlineValve(
+    "gate-valve",
+    "Isolation",
+    "Gate valve",
+    "GV",
+    GateValve,
+    { lossModel: "k", defaultK: 0.15 },
+  ),
+  "ball-valve": inlineValve(
+    "ball-valve",
+    "Isolation",
+    "Ball valve",
+    "BV",
+    BallValve,
+    { lossModel: "k", defaultK: 0.05 },
+  ),
+  "butterfly-valve": inlineValve(
+    "butterfly-valve",
+    "Isolation",
+    "Butterfly valve",
+    "BFV",
+    ButterflyValve,
+    { lossModel: "k", defaultK: 0.7 },
+  ),
+  "plug-valve": inlineValve(
+    "plug-valve",
+    "Isolation",
+    "Plug valve",
+    "PV",
+    PlugValve,
+    { lossModel: "k", defaultK: 0.4 },
+  ),
+  "diaphragm-valve": inlineValve(
+    "diaphragm-valve",
+    "Isolation",
+    "Diaphragm valve",
+    "DPV",
+    DiaphragmValve,
+    { lossModel: "k", defaultK: 2.3 },
+  ),
+  "pinch-valve": inlineValve(
+    "pinch-valve",
+    "Isolation",
+    "Pinch valve",
+    "PNV",
+    PinchValve,
+    { lossModel: "k", defaultK: 1.5 },
+  ),
+  "needle-valve": inlineValve(
+    "needle-valve",
+    "Isolation",
+    "Needle valve",
+    "NV",
+    NeedleValve,
+    { lossModel: "k", defaultK: 5 },
+  ),
+  "hand-valve": inlineValve(
+    "hand-valve",
+    "Isolation",
+    "Hand valve (generic)",
+    "HV",
+    HandValve,
+    { lossModel: "k", defaultK: 0.5 },
+  ),
 
   // Specialty body
-  "globe-valve": inlineValve("globe-valve", "Specialty", "Globe valve", "GLV", GlobeValve, {
-    defaultParams: { Cv: 25, openFraction: 1 },
-  }),
-  "angle-valve": inlineValve("angle-valve", "Specialty", "Angle valve", "AV", AngleValve, {
-    defaultParams: { Cv: 20, openFraction: 1 },
-  }),
+  "globe-valve": inlineValve(
+    "globe-valve",
+    "Specialty",
+    "Globe valve",
+    "GLV",
+    GlobeValve,
+    { lossModel: "k", defaultK: 6 },
+  ),
+  "angle-valve": inlineValve(
+    "angle-valve",
+    "Specialty",
+    "Angle valve",
+    "AV",
+    AngleValve,
+    { lossModel: "k", defaultK: 4 },
+  ),
   "three-way-valve": {
     type: "three-way-valve",
     category: "valve",
@@ -936,32 +1071,66 @@ export const SYMBOL_REGISTRY: Record<string, SymbolDef> = {
     engineModel: "valve",
     Icon: ThreeWayValve,
     defaultLabel: "3WV-101",
-    paramSchema: VALVE_CV_SCHEMA,
-    defaultParams: { Cv: 80, openFraction: 1 },
+    paramSchema: VALVE_K_SCHEMA,
+    defaultParams: { openFraction: 1 },
+    hydraulics: { lossModel: "k", defaultK: 6 },
   },
 
   // Check
-  "check-valve": inlineValve("check-valve", "Check", "Swing check valve", "CV", CheckValve, {
-    paramSchema: [
-      { key: "crackingPressureBar", label: "Cracking pressure", unit: "bar", kind: "number", default: 0.05 },
-      { key: "K", label: "Loss coefficient K", kind: "number", default: 2 },
-    ],
-    defaultParams: { crackingPressureBar: 0.05, K: 2 },
-  }),
-  "lift-check-valve": inlineValve("lift-check-valve", "Check", "Lift check valve", "CV", LiftCheckValve, {
-    paramSchema: [
-      { key: "crackingPressureBar", label: "Cracking pressure", unit: "bar", kind: "number", default: 0.1 },
-      { key: "K", label: "Loss coefficient K", kind: "number", default: 6 },
-    ],
-    defaultParams: { crackingPressureBar: 0.1, K: 6 },
-  }),
-  "foot-valve": inlineValve("foot-valve", "Check", "Foot valve (with strainer)", "FV", FootValve, {
-    size: { width: 64, height: 64 },
-    paramSchema: [
-      { key: "K", label: "Loss coefficient K", kind: "number", default: 12 },
-    ],
-    defaultParams: { K: 12 },
-  }),
+  "check-valve": inlineValve(
+    "check-valve",
+    "Check",
+    "Swing check valve",
+    "CV",
+    CheckValve,
+    { lossModel: "k", defaultK: 2, isCheck: true },
+    {
+      paramSchema: [
+        {
+          key: "crackingPressureBar",
+          label: "Cracking pressure",
+          unit: "bar",
+          kind: "number",
+          default: 0.05,
+        },
+        ...VALVE_K_SCHEMA,
+      ],
+      defaultParams: { crackingPressureBar: 0.05, openFraction: 1 },
+    },
+  ),
+  "lift-check-valve": inlineValve(
+    "lift-check-valve",
+    "Check",
+    "Lift check valve",
+    "CV",
+    LiftCheckValve,
+    { lossModel: "k", defaultK: 8, isCheck: true },
+    {
+      paramSchema: [
+        {
+          key: "crackingPressureBar",
+          label: "Cracking pressure",
+          unit: "bar",
+          kind: "number",
+          default: 0.1,
+        },
+        ...VALVE_K_SCHEMA,
+      ],
+      defaultParams: { crackingPressureBar: 0.1, openFraction: 1 },
+    },
+  ),
+  "foot-valve": inlineValve(
+    "foot-valve",
+    "Check",
+    "Foot valve (with strainer)",
+    "FV",
+    FootValve,
+    { lossModel: "k", defaultK: 13, isCheck: true },
+    {
+      size: { width: 64, height: 64 },
+      defaultParams: { openFraction: 1 },
+    },
+  ),
 
   // Actuated / control
   "control-valve": {
@@ -979,11 +1148,9 @@ export const SYMBOL_REGISTRY: Record<string, SymbolDef> = {
     engineModel: "valve",
     Icon: ControlValve,
     defaultLabel: "FV-101",
-    paramSchema: [
-      { key: "Cv", label: "Rated Cv", unit: "Cv", kind: "number", default: 40 },
-      { key: "openFraction", label: "Open fraction (signal)", kind: "number", default: 0.5, min: 0, max: 1, step: 0.05 },
-    ],
-    defaultParams: { Cv: 40, openFraction: 0.5 },
+    paramSchema: VALVE_CV_SCHEMA,
+    defaultParams: { openFraction: 0.5 },
+    hydraulics: { lossModel: "cv", defaultCv: 40 },
   },
   "motor-operated-valve": inlineValve(
     "motor-operated-valve",
@@ -991,6 +1158,7 @@ export const SYMBOL_REGISTRY: Record<string, SymbolDef> = {
     "Motor-operated valve (MOV)",
     "MOV",
     MotorOperatedValve,
+    { lossModel: "k", defaultK: 0.15 },
     { size: { width: 64, height: 72 } },
   ),
   "solenoid-valve": inlineValve(
@@ -999,10 +1167,8 @@ export const SYMBOL_REGISTRY: Record<string, SymbolDef> = {
     "Solenoid valve",
     "SV",
     SolenoidValve,
-    {
-      size: { width: 64, height: 72 },
-      defaultParams: { Cv: 5, openFraction: 1 },
-    },
+    { lossModel: "k", defaultK: 4 },
+    { size: { width: 64, height: 72 } },
   ),
   "pressure-regulator": inlineValve(
     "pressure-regulator",
@@ -1010,13 +1176,20 @@ export const SYMBOL_REGISTRY: Record<string, SymbolDef> = {
     "Pressure regulator (self-acting)",
     "PCV",
     PressureRegulator,
+    { lossModel: "cv", defaultCv: 20 },
     {
       size: { width: 64, height: 72 },
       paramSchema: [
-        { key: "setPressureBar", label: "Set pressure", unit: "bar(g)", kind: "number", default: 3 },
-        { key: "Cv", label: "Rated Cv", unit: "Cv", kind: "number", default: 20 },
+        {
+          key: "setPressureBar",
+          label: "Set pressure",
+          unit: "bar(g)",
+          kind: "number",
+          default: 3,
+        },
+        ...VALVE_CV_SCHEMA,
       ],
-      defaultParams: { setPressureBar: 3, Cv: 20 },
+      defaultParams: { setPressureBar: 3, openFraction: 1 },
     },
   ),
 
@@ -1040,128 +1213,287 @@ export const SYMBOL_REGISTRY: Record<string, SymbolDef> = {
     ],
     defaultParams: { setPressureBar: 10 },
   },
-  "rupture-disc": inlineFitting("rupture-disc", "Pressure relief & safety", "Rupture disc", RuptureDisc, {
-    tagPrefix: "RD",
-    defaultLabel: "RD-101",
-    paramSchema: [
-      { key: "burstPressureBar", label: "Burst pressure", unit: "bar(g)", kind: "number", default: 12 },
-    ],
-    defaultParams: { burstPressureBar: 12 },
-  }),
-  "breather-valve": inlineFitting("breather-valve", "Pressure relief & safety", "Breather / vacuum vent", BreatherValve, {
-    size: { width: 56, height: 64 },
-    tagPrefix: "PV",
-    defaultLabel: "PV-101",
-    ports: [{ id: "in", side: "bottom", position: 0.5 }],
-  }),
-  "flame-arrestor": inlineFitting("flame-arrestor", "Pressure relief & safety", "Flame arrestor", FlameArrestor, {
-    size: { width: 64, height: 48 },
-    tagPrefix: "FA",
-    defaultLabel: "FA-101",
-  }),
+  "rupture-disc": inlineFitting(
+    "rupture-disc",
+    "Pressure relief & safety",
+    "Rupture disc",
+    RuptureDisc,
+    // Closed under normal operation — adds no head loss to a steady-state path.
+    undefined,
+    {
+      tagPrefix: "RD",
+      defaultLabel: "RD-101",
+      paramSchema: [
+        {
+          key: "burstPressureBar",
+          label: "Burst pressure",
+          unit: "bar(g)",
+          kind: "number",
+          default: 12,
+        },
+      ],
+      defaultParams: { burstPressureBar: 12 },
+    },
+  ),
+  "breather-valve": inlineFitting(
+    "breather-valve",
+    "Pressure relief & safety",
+    "Breather / vacuum vent",
+    BreatherValve,
+    undefined,
+    {
+      size: { width: 56, height: 64 },
+      tagPrefix: "PV",
+      defaultLabel: "PV-101",
+      ports: [{ id: "in", side: "bottom", position: 0.5 }],
+    },
+  ),
+  "flame-arrestor": inlineFitting(
+    "flame-arrestor",
+    "Pressure relief & safety",
+    "Flame arrestor",
+    FlameArrestor,
+    { lossModel: "k", defaultK: 5 },
+    {
+      size: { width: 64, height: 48 },
+      tagPrefix: "FA",
+      defaultLabel: "FA-101",
+    },
+  ),
 
   // ===== FILTERS & STRAINERS ==============================================
-  "y-strainer": filterSymbol("y-strainer", "Y-strainer", "ST", YStrainer),
-  "t-strainer": filterSymbol("t-strainer", "T-strainer", "ST", TStrainer),
-  "basket-strainer": filterSymbol("basket-strainer", "Basket strainer", "ST", BasketStrainer, {
-    size: { width: 64, height: 64 },
+  // Loss coefficients are Crane / manufacturer-typical for *clean* media. Real
+  // dirty-filter drops can be much higher — users override per-symbol once a
+  // process is in service.
+  "y-strainer": filterSymbol("y-strainer", "Y-strainer", "ST", YStrainer, {
+    lossModel: "k",
+    defaultK: 1.5,
   }),
-  "simplex-filter": filterSymbol("simplex-filter", "Simplex filter", "F", SimplexFilter, {
-    size: { width: 64, height: 64 },
+  "t-strainer": filterSymbol("t-strainer", "T-strainer", "ST", TStrainer, {
+    lossModel: "k",
+    defaultK: 2.0,
   }),
-  "duplex-filter": filterSymbol("duplex-filter", "Duplex filter", "F", DuplexFilter, {
-    size: { width: 80, height: 64 },
-  }),
-  "bag-filter": filterSymbol("bag-filter", "Bag filter", "F", BagFilter, {
-    size: { width: 64, height: 64 },
-  }),
-  "cartridge-filter": filterSymbol("cartridge-filter", "Cartridge filter", "F", CartridgeFilter, {
-    size: { width: 64, height: 80 },
-  }),
-  "sand-filter": filterSymbol("sand-filter", "Multimedia / sand filter", "F", SandFilter, {
-    size: { width: 64, height: 80 },
-  }),
+  "basket-strainer": filterSymbol(
+    "basket-strainer",
+    "Basket strainer",
+    "ST",
+    BasketStrainer,
+    { lossModel: "k", defaultK: 3.0 },
+    { size: { width: 64, height: 64 } },
+  ),
+  "simplex-filter": filterSymbol(
+    "simplex-filter",
+    "Simplex filter",
+    "F",
+    SimplexFilter,
+    { lossModel: "k", defaultK: 5.0 },
+    { size: { width: 64, height: 64 } },
+  ),
+  "duplex-filter": filterSymbol(
+    "duplex-filter",
+    "Duplex filter",
+    "F",
+    DuplexFilter,
+    { lossModel: "k", defaultK: 6.0 },
+    { size: { width: 80, height: 64 } },
+  ),
+  "bag-filter": filterSymbol(
+    "bag-filter",
+    "Bag filter",
+    "F",
+    BagFilter,
+    { lossModel: "k", defaultK: 10.0 },
+    { size: { width: 64, height: 64 } },
+  ),
+  "cartridge-filter": filterSymbol(
+    "cartridge-filter",
+    "Cartridge filter",
+    "F",
+    CartridgeFilter,
+    { lossModel: "k", defaultK: 8.0 },
+    { size: { width: 64, height: 80 } },
+  ),
+  "sand-filter": filterSymbol(
+    "sand-filter",
+    "Multimedia / sand filter",
+    "F",
+    SandFilter,
+    { lossModel: "k", defaultK: 4.0 },
+    { size: { width: 64, height: 80 } },
+  ),
 
   // ===== INLINE & FITTINGS ================================================
-  "orifice-plate": inlineFitting("orifice-plate", "Flow elements", "Orifice plate", OrificePlate, {
-    size: { width: 64, height: 48 },
-    tagPrefix: "FE",
-    defaultLabel: "FE-101",
-    paramSchema: [
-      { key: "boreMm", label: "Bore diameter", unit: "mm", kind: "number", default: 25 },
-      { key: "betaRatio", label: "β ratio", kind: "number", default: 0.5 },
-    ],
-    defaultParams: { boreMm: 25, betaRatio: 0.5 },
-  }),
-  "venturi": inlineFitting("venturi", "Flow elements", "Venturi meter", Venturi, {
-    size: { width: 80, height: 48 },
-    tagPrefix: "FE",
-    defaultLabel: "FE-102",
-  }),
-  "rotameter": inlineFitting("rotameter", "Flow elements", "Rotameter (VA meter)", Rotameter, {
-    size: { width: 56, height: 80 },
-    tagPrefix: "FI",
-    defaultLabel: "FI-101",
-  }),
-  "pitot-probe": inlineFitting("pitot-probe", "Flow elements", "Pitot probe", PitotProbe, {
-    size: { width: 64, height: 64 },
-    tagPrefix: "FE",
-    defaultLabel: "FE-103",
-  }),
-  "steam-trap": inlineFitting("steam-trap", "Traps & vents", "Steam trap", SteamTrap, {
-    size: { width: 64, height: 48 },
-    tagPrefix: "ST",
-    defaultLabel: "ST-101",
-  }),
-  "air-vent": inlineFitting("air-vent", "Traps & vents", "Air vent", AirVent, {
-    size: { width: 56, height: 64 },
-    ports: [{ id: "in", side: "bottom", position: 0.5 }],
-  }),
-  "drain": inlineFitting("drain", "Traps & vents", "Drain", Drain, {
-    size: { width: 56, height: 64 },
-    ports: [{ id: "in", side: "top", position: 0.5 }],
-  }),
-  "sight-glass": inlineFitting("sight-glass", "Sample & sight", "Sight glass", SightGlass, {
-    size: { width: 64, height: 48 },
-    tagPrefix: "SG",
-    defaultLabel: "SG-101",
-  }),
-  "sample-point": inlineFitting("sample-point", "Sample & sight", "Sample point", SamplePoint, {
-    size: { width: 64, height: 64 },
-    tagPrefix: "SP",
-    defaultLabel: "SP-101",
-    ports: [{ id: "tap", side: "top", position: 0.5 }],
-  }),
+  "orifice-plate": inlineFitting(
+    "orifice-plate",
+    "Flow elements",
+    "Orifice plate",
+    OrificePlate,
+    // K ~ ((1 − β²)/β²)² ≈ 9 for β = 0.5 — common process-flow metering plate.
+    { lossModel: "k", defaultK: 9 },
+    {
+      size: { width: 64, height: 48 },
+      tagPrefix: "FE",
+      defaultLabel: "FE-101",
+      paramSchema: [
+        {
+          key: "boreMm",
+          label: "Bore diameter",
+          unit: "mm",
+          kind: "number",
+          default: 25,
+        },
+        { key: "betaRatio", label: "β ratio", kind: "number", default: 0.5 },
+        {
+          key: "K",
+          label: "Loss coefficient K",
+          kind: "number",
+          min: 0,
+          description: "Leave blank to use the catalogue default (β-derived).",
+        },
+      ],
+      defaultParams: { boreMm: 25, betaRatio: 0.5 },
+    },
+  ),
+  "venturi": inlineFitting(
+    "venturi",
+    "Flow elements",
+    "Venturi meter",
+    Venturi,
+    { lossModel: "k", defaultK: 0.2 },
+    {
+      size: { width: 80, height: 48 },
+      tagPrefix: "FE",
+      defaultLabel: "FE-102",
+    },
+  ),
+  "rotameter": inlineFitting(
+    "rotameter",
+    "Flow elements",
+    "Rotameter (VA meter)",
+    Rotameter,
+    { lossModel: "k", defaultK: 1.5 },
+    {
+      size: { width: 56, height: 80 },
+      tagPrefix: "FI",
+      defaultLabel: "FI-101",
+    },
+  ),
+  "pitot-probe": inlineFitting(
+    "pitot-probe",
+    "Flow elements",
+    "Pitot probe",
+    PitotProbe,
+    // Insertion probe — sees essentially the line ΔP it's sampling.
+    undefined,
+    {
+      size: { width: 64, height: 64 },
+      tagPrefix: "FE",
+      defaultLabel: "FE-103",
+    },
+  ),
+  "steam-trap": inlineFitting(
+    "steam-trap",
+    "Traps & vents",
+    "Steam trap",
+    SteamTrap,
+    undefined,
+    {
+      size: { width: 64, height: 48 },
+      tagPrefix: "ST",
+      defaultLabel: "ST-101",
+    },
+  ),
+  "air-vent": inlineFitting(
+    "air-vent",
+    "Traps & vents",
+    "Air vent",
+    AirVent,
+    undefined,
+    {
+      size: { width: 56, height: 64 },
+      ports: [{ id: "in", side: "bottom", position: 0.5 }],
+    },
+  ),
+  "drain": inlineFitting(
+    "drain",
+    "Traps & vents",
+    "Drain",
+    Drain,
+    undefined,
+    {
+      size: { width: 56, height: 64 },
+      ports: [{ id: "in", side: "top", position: 0.5 }],
+    },
+  ),
+  "sight-glass": inlineFitting(
+    "sight-glass",
+    "Sample & sight",
+    "Sight glass",
+    SightGlass,
+    { lossModel: "k", defaultK: 0.5 },
+    {
+      size: { width: 64, height: 48 },
+      tagPrefix: "SG",
+      defaultLabel: "SG-101",
+    },
+  ),
+  "sample-point": inlineFitting(
+    "sample-point",
+    "Sample & sight",
+    "Sample point",
+    SamplePoint,
+    undefined,
+    {
+      size: { width: 64, height: 64 },
+      tagPrefix: "SP",
+      defaultLabel: "SP-101",
+      ports: [{ id: "tap", side: "top", position: 0.5 }],
+    },
+  ),
   "concentric-reducer": inlineFitting(
     "concentric-reducer",
     "Mechanical",
     "Concentric reducer",
     ConcentricReducer,
+    { lossModel: "k", defaultK: 0.2 },
   ),
   "eccentric-reducer": inlineFitting(
     "eccentric-reducer",
     "Mechanical",
     "Eccentric reducer",
     EccentricReducer,
+    { lossModel: "k", defaultK: 0.3 },
   ),
   "expansion-joint": inlineFitting(
     "expansion-joint",
     "Mechanical",
     "Expansion joint",
     ExpansionJoint,
+    { lossModel: "k", defaultK: 0.3 },
   ),
   "spectacle-blind": inlineFitting(
     "spectacle-blind",
     "Mechanical",
     "Spectacle blind",
     SpectacleBlind,
+    undefined,
   ),
-  "pipe-cap": inlineFitting("pipe-cap", "Mechanical", "Pipe cap / blank", PipeCap, {
-    ports: [{ id: "in", side: "left", position: 0.5 }],
-  }),
-  "spray-nozzle": inlineFitting("spray-nozzle", "Mechanical", "Spray nozzle", SprayNozzle, {
-    ports: [{ id: "in", side: "left", position: 0.5 }],
-  }),
+  "pipe-cap": inlineFitting(
+    "pipe-cap",
+    "Mechanical",
+    "Pipe cap / blank",
+    PipeCap,
+    undefined,
+    { ports: [{ id: "in", side: "left", position: 0.5 }] },
+  ),
+  "spray-nozzle": inlineFitting(
+    "spray-nozzle",
+    "Mechanical",
+    "Spray nozzle",
+    SprayNozzle,
+    undefined,
+    { ports: [{ id: "in", side: "left", position: 0.5 }] },
+  ),
 
   // ===== CONNECTORS =======================================================
   "tap-point": {

@@ -14,6 +14,7 @@ import type { ProjectMeta } from "@/store/projectStore";
 import type { DrawingPage } from "@/store/drawingsStore";
 
 import { renderDrawingPage } from "./drawingsRender";
+import { ensureInterFont } from "./pdfFonts";
 import { isTauriRuntime } from "./runtime";
 
 export interface DrawingsPdfInput {
@@ -30,6 +31,7 @@ async function buildDrawingsPdf(input: DrawingsPdfInput): Promise<ArrayBuffer> {
     unit: "mm",
     format: "a3",
   });
+  await ensureInterFont(doc);
 
   const stage = document.createElement("div");
   stage.style.position = "fixed";
