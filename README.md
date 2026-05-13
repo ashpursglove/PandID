@@ -146,13 +146,12 @@ When solve is clicked, the engine:
 </p>
 
 ## The Drawings Tab
+### This is where you go from "I have a diagram" to "I have a deliverable".
 
 <p align="center">
 <img width="1912" height="967" alt="image" src="https://github.com/user-attachments/assets/5560fe0d-f163-45aa-84f5-bcf54bf5dd39" />
 
 </p>
-
-This is where you go from "I have a diagram" to "I have a deliverable".
 
 - **Multi-page A3-landscape PDF pack** with a proper ISO title block on every sheet.
 - **Four page types:**
