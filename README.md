@@ -7,7 +7,7 @@
 [![Rust](https://img.shields.io/badge/rust-stable-orange?logo=rust&logoColor=white)](https://rustup.rs)
 [![Licence: MIT](https://img.shields.io/badge/licence-MIT-green)](#licence)
 [![Internet required: no](https://img.shields.io/badge/internet%20required-no-success)]()
-[![Account required: also no]([https://img.shields.io/badge/account%20required-also%20no-success](https://github.com/ashpursglove/PandID/blob/main/README.md))]()
+[![Account required: also no]([https://img.shields.io/badge/account%20required-also%20no-success]))]()
 [![Account required: also no]]()
 
 <p align="center">
