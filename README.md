@@ -79,7 +79,7 @@ Forever.
 ## What It Actually Does (Concretely, Without The Sales Pitch)
 
 <p align="center">
-<img width="1590" height="917" alt="image" src="https://github.com/user-attachments/assets/775acfbd-a29c-404b-9a3b-deaf247bf6ee" /> <img width="370" height="922" alt="image" src="https://github.com/user-attachments/assets/854afc95-c1f3-4797-9204-f0ab292c39f7" />
+<img width="1590" height="917" alt="image" src="https://github.com/user-attachments/assets/775acfbd-a29c-404b-9a3b-deaf247bf6ee" /> 
 
 
 </p>
@@ -99,7 +99,7 @@ Forever.
 - **Auto-tagging** — drop a second centrifugal pump and it becomes P-102 because P-101 already exists. You can override it. Nobody is forcing you. It's just not 1997 here.
 
 <p align="center">
-<img width="270" height="682" alt="image" src="https://github.com/user-attachments/assets/9a789127-c4b2-4283-b140-57bb03aec42a" />
+<img width="270" height="682" alt="image" src="https://github.com/user-attachments/assets/9a789127-c4b2-4283-b140-57bb03aec42a" /> <img width="370" height="922" alt="image" src="https://github.com/user-attachments/assets/854afc95-c1f3-4797-9204-f0ab292c39f7" />
 
 </p>
 
