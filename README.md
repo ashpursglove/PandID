@@ -106,9 +106,10 @@ Forever.
 ### The Hydraulics Engine
 
 <p align="center">
-  <img src="docs/screenshots/analysis-overview.png" alt="Analysis page" width="900">
-  <br>
-  <em>Screenshot placeholder: analysis page showing route preview, KPI cards, pump-vs-system chart, and per-component breakdown table.</em>
+<img width="455" height="237" alt="image" src="https://github.com/user-attachments/assets/a5ba2f5d-761f-43f3-9e67-a3e574d45641" />
+<img width="1496" height="570" alt="image" src="https://github.com/user-attachments/assets/e98c4b22-54b9-4d69-9d4f-67395ba02531" />
+
+
 </p>
 
 Pick a start node, pick an end node, pick a fluid, hit **Solve**. The engine:
@@ -125,7 +126,9 @@ Pick a start node, pick an end node, pick a fluid, hit **Solve**. The engine:
 5. **Tells you whether the pump is undersized**, whether the shutoff head clears the static lift, and what the operating flow rate is in m³/h, m³/s, and L/s.
 
 **Two modes:**
-
+<p align="center">
+<img width="360" height="271" alt="image" src="https://github.com/user-attachments/assets/51efff38-221f-4f84-b5dd-be13a1ff56e4" />
+</p>
 - **Predict the flow rate** (forward) — given the system and the pump, what flow do you actually get?
 - **Solve for a target flow** (inverse) — given a flow you want, what head does the system need? Does the installed pump deliver that head? If not, by how much is it short?
 
