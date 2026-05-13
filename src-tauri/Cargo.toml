@@ -1,6 +1,6 @@
 [package]
 name = "pandid"
-version = "0.9.0"
+version = "1.0.0"
 description = "Ash's P&ID Playground — local P&ID editor and analysis tool"
 authors = ["you"]
 edition = "2021"
