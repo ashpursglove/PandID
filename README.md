@@ -108,9 +108,6 @@ Forever.
 
 <p align="center">
 <img width="455" height="237" alt="image" src="https://github.com/user-attachments/assets/a5ba2f5d-761f-43f3-9e67-a3e574d45641" />
-<img width="1496" height="570" alt="image" src="https://github.com/user-attachments/assets/e98c4b22-54b9-4d69-9d4f-67395ba02531" />
-
-
 </p>
 
 When solve is clicked, the engine:
@@ -142,9 +139,9 @@ When solve is clicked, the engine:
 - A **"Send report to Drawings"** button that paginates the whole thing into your drawing pack as one or more analysis sheets.
 
 <p align="center">
-  <img src="docs/screenshots/pump-system-curve.png" alt="Pump vs system curve" width="700">
-  <br>
-  <em>Screenshot placeholder: just the pump/system curve chart with operating point highlighted.</em>
+<img width="1496" height="570" alt="image" src="https://github.com/user-attachments/assets/e98c4b22-54b9-4d69-9d4f-67395ba02531" />
+<img width="1477" height="727" alt="image" src="https://github.com/user-attachments/assets/3475ce6f-9b0e-4a23-89f1-862387b6ef54" />
+
 </p>
 
 ### The Drawings Tab
