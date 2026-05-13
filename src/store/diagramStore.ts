@@ -13,17 +13,38 @@ import {
 
 import type { LineType, PipeEdgeData, SymbolNodeData } from "@/types/diagram";
 import { resolvePipePreset, type PipeMaterialId } from "@/presets/pipes";
+import { nextEdgeId, nextNodeId } from "@/lib/ids";
+import { nextTag } from "@/components/Canvas/autoTag";
+import { getSymbol } from "@/symbols/registry";
 
 export type DiagramNode = Node<SymbolNodeData>;
 export type DiagramEdge = Edge<PipeEdgeData>;
+
+/**
+ * Snapshot of nodes + connecting edges captured by copy/cut, ready to be
+ * cloned into the live diagram by paste. Lives in-memory only — we don't
+ * touch the OS clipboard because graph data doesn't survive a `text/plain`
+ * round-trip and we don't want users pasting their diagram into Word.
+ */
+interface DiagramClipboard {
+  nodes: DiagramNode[];
+  edges: DiagramEdge[];
+}
 
 interface DiagramState {
   nodes: DiagramNode[];
   edges: DiagramEdge[];
 
-  /** Selected node/edge ids (single-select for the inspector). */
+  /** First selected node/edge id — drives the single-pane inspector. */
   selectedNodeId: string | null;
   selectedEdgeId: string | null;
+
+  /** Full multi-selection — drives copy/cut and the toolbar trash button. */
+  selectedNodeIds: string[];
+  selectedEdgeIds: string[];
+
+  /** In-memory clipboard; null until the user copies something. */
+  clipboard: DiagramClipboard | null;
 
   onNodesChange: (changes: NodeChange<DiagramNode>[]) => void;
   onEdgesChange: (changes: EdgeChange<DiagramEdge>[]) => void;
@@ -44,6 +65,11 @@ interface DiagramState {
   replaceAll: (nodes: DiagramNode[], edges: DiagramEdge[]) => void;
   clear: () => void;
 
+  /** Clipboard operations. Return `true` if anything was copied/pasted. */
+  copySelection: () => boolean;
+  cutSelection: () => boolean;
+  pasteClipboard: () => boolean;
+
   nextLineType: LineType;
   setNextLineType: (lineType: LineType) => void;
 
@@ -57,6 +83,31 @@ interface DiagramState {
   setLastPipePreset: (material: PipeMaterialId, nominal: string) => void;
 }
 
+/**
+ * Coalesces rapid `set()` calls into a single zundo history entry. Without
+ * this, every pixel of a node drag fires `onNodesChange` and gets recorded as
+ * its own undo step — so Ctrl+Z reverts the diagram by one drag tick, which
+ * is invisible to the user, and a single drag across the canvas exhausts the
+ * 100-entry history limit. With it, a drag becomes one history entry, fired
+ * ~300 ms after the user lets go.
+ */
+function debounceHistory<TArgs extends unknown[]>(
+  fn: (...args: TArgs) => void,
+  ms: number,
+): (...args: TArgs) => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let lastArgs: TArgs | null = null;
+  return (...args: TArgs) => {
+    lastArgs = args;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      if (lastArgs) fn(...lastArgs);
+      lastArgs = null;
+    }, ms);
+  };
+}
+
 export const useDiagramStore = create<DiagramState>()(
   temporal(
     (set, get) => ({
@@ -64,6 +115,9 @@ export const useDiagramStore = create<DiagramState>()(
       edges: [],
       selectedNodeId: null,
       selectedEdgeId: null,
+      selectedNodeIds: [],
+      selectedEdgeIds: [],
+      clipboard: null,
 
       onNodesChange: (changes) =>
         set({ nodes: applyNodeChanges(changes, get().nodes) }),
@@ -116,6 +170,8 @@ export const useDiagramStore = create<DiagramState>()(
         set({
           selectedNodeId: nodes[0]?.id ?? null,
           selectedEdgeId: edges[0]?.id ?? null,
+          selectedNodeIds: nodes.map((n) => n.id),
+          selectedEdgeIds: edges.map((e) => e.id),
         }),
 
       addNode: (node) => set({ nodes: [...get().nodes, node] }),
@@ -165,22 +221,144 @@ export const useDiagramStore = create<DiagramState>()(
         });
       },
 
+      /**
+       * Remove every selected node and every selected edge in one operation.
+       * Also removes any edge incident on a selected node, otherwise the
+       * graph is left with dangling references. Works whether the user has
+       * a single thing selected (toolbar trash button) or a marquee
+       * multi-selection.
+       */
       removeSelected: () => {
-        const { selectedNodeId, selectedEdgeId, nodes, edges } = get();
-        if (selectedNodeId) {
-          set({
-            nodes: nodes.filter((n) => n.id !== selectedNodeId),
-            edges: edges.filter(
-              (e) => e.source !== selectedNodeId && e.target !== selectedNodeId,
-            ),
-            selectedNodeId: null,
-          });
-        } else if (selectedEdgeId) {
-          set({
-            edges: edges.filter((e) => e.id !== selectedEdgeId),
-            selectedEdgeId: null,
-          });
+        const { selectedNodeIds, selectedEdgeIds, nodes, edges } = get();
+        if (selectedNodeIds.length === 0 && selectedEdgeIds.length === 0) {
+          return;
         }
+        const killedNodeIds = new Set(selectedNodeIds);
+        const killedEdgeIds = new Set(selectedEdgeIds);
+        set({
+          nodes: nodes.filter((n) => !killedNodeIds.has(n.id)),
+          edges: edges.filter(
+            (e) =>
+              !killedEdgeIds.has(e.id) &&
+              !killedNodeIds.has(e.source) &&
+              !killedNodeIds.has(e.target),
+          ),
+          selectedNodeId: null,
+          selectedEdgeId: null,
+          selectedNodeIds: [],
+          selectedEdgeIds: [],
+        });
+      },
+
+      copySelection: () => {
+        const { nodes, edges, selectedNodeIds, selectedEdgeIds } = get();
+        if (selectedNodeIds.length === 0 && selectedEdgeIds.length === 0) {
+          return false;
+        }
+        const selectedSet = new Set(selectedNodeIds);
+        const explicitEdges = new Set(selectedEdgeIds);
+        const copiedNodes = nodes.filter((n) => selectedSet.has(n.id));
+        const copiedEdges = edges.filter(
+          (e) =>
+            // Keep any explicitly-selected edge.
+            explicitEdges.has(e.id) ||
+            // Plus any edge whose *both* endpoints are in the selection — that
+            // way a copied subgraph keeps its internal wiring. Edges with one
+            // endpoint outside the selection would dangle on paste, so drop
+            // them silently.
+            (selectedSet.has(e.source) && selectedSet.has(e.target)),
+        );
+        set({ clipboard: { nodes: copiedNodes, edges: copiedEdges } });
+        return true;
+      },
+
+      cutSelection: () => {
+        const copied = get().copySelection();
+        if (!copied) return false;
+        get().removeSelected();
+        return true;
+      },
+
+      /**
+       * Paste the clipboard back into the diagram with:
+       *  - fresh IDs (so paste-three-times doesn't collide),
+       *  - positions offset by +30/+30 so the pasted copy is visible,
+       *  - tags re-issued per the auto-tag convention (P-101 → P-102 etc.),
+       *  - the previously selected stuff de-selected and the new stuff
+       *    selected, matching every other graphical editor.
+       */
+      pasteClipboard: () => {
+        const state = get();
+        const { clipboard, nodes, edges } = state;
+        if (!clipboard || clipboard.nodes.length === 0) {
+          return false;
+        }
+        const offset = 30;
+
+        // Work in two passes so newly-pasted nodes participate in auto-tag
+        // lookup as we paginate through them — otherwise pasting three
+        // identical pumps gives them all the same suggested tag.
+        const idMap = new Map<string, string>();
+        const taggedSoFar: DiagramNode[] = [...nodes];
+        const newNodes: DiagramNode[] = [];
+
+        for (const src of clipboard.nodes) {
+          const newId = nextNodeId();
+          idMap.set(src.id, newId);
+
+          // Re-issue the tag if the symbol has a tag prefix; otherwise drop
+          // it so duplicated pumps don't both claim P-101.
+          const symbol = getSymbol(src.data.symbolType);
+          const tag = symbol?.tagPrefix
+            ? nextTag(symbol.tagPrefix, taggedSoFar)
+            : undefined;
+
+          const cloned: DiagramNode = {
+            ...src,
+            id: newId,
+            position: {
+              x: src.position.x + offset,
+              y: src.position.y + offset,
+            },
+            selected: true,
+            data: {
+              ...src.data,
+              tag,
+            },
+          };
+          newNodes.push(cloned);
+          taggedSoFar.push(cloned);
+        }
+
+        const newEdges: DiagramEdge[] = clipboard.edges
+          // Only keep edges whose endpoints were both pasted; orphan edges
+          // would dangle. (We already filtered to internal edges in
+          // `copySelection`, but a stale clipboard from before a deletion
+          // might still leak through.)
+          .filter((e) => idMap.has(e.source) && idMap.has(e.target))
+          .map((src) => ({
+            ...src,
+            id: nextEdgeId(),
+            source: idMap.get(src.source)!,
+            target: idMap.get(src.target)!,
+            selected: false,
+          }));
+
+        set({
+          nodes: [
+            ...nodes.map((n) =>
+              n.selected ? { ...n, selected: false } : n,
+            ),
+            ...newNodes,
+          ],
+          edges: [
+            ...edges.map((e) =>
+              e.selected ? { ...e, selected: false } : e,
+            ),
+            ...newEdges,
+          ],
+        });
+        return true;
       },
 
       replaceAll: (nodes, edges) =>
@@ -189,6 +367,8 @@ export const useDiagramStore = create<DiagramState>()(
           edges,
           selectedNodeId: null,
           selectedEdgeId: null,
+          selectedNodeIds: [],
+          selectedEdgeIds: [],
         }),
 
       clear: () =>
@@ -197,12 +377,19 @@ export const useDiagramStore = create<DiagramState>()(
           edges: [],
           selectedNodeId: null,
           selectedEdgeId: null,
+          selectedNodeIds: [],
+          selectedEdgeIds: [],
         }),
     }),
     {
-      // Only track diagram geometry/data in history, not transient selection.
+      // Only track diagram geometry/data in history, not transient selection
+      // or the clipboard. Otherwise pressing Ctrl+C registers as an undoable
+      // event, which is the kind of thing that makes me hate software.
       partialize: (state) => ({ nodes: state.nodes, edges: state.edges }),
       limit: 100,
+      // Coalesce rapid changes (mid-drag, mid-resize) into a single history
+      // step ~300 ms after the user stops moving. See `debounceHistory` above.
+      handleSet: (handleSet) => debounceHistory(handleSet, 300),
     },
   ),
 );

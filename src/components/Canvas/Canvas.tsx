@@ -30,6 +30,7 @@ import {
   buildTapInsertion,
   findClosestProcessEdge,
 } from "@/components/Canvas/tapInsertion";
+import { nextId, nextNodeId } from "@/lib/ids";
 import { cn } from "@/lib/utils";
 
 interface CanvasProps {
@@ -38,15 +39,6 @@ interface CanvasProps {
 
 const nodeTypes: NodeTypes = { symbol: SymbolNode };
 const edgeTypes: EdgeTypes = { pipe: PipeEdge };
-
-let idCounter = 0;
-function nextId(prefix: string) {
-  idCounter += 1;
-  return `${prefix}-${Date.now().toString(36)}-${idCounter}`;
-}
-function nextNodeId() {
-  return nextId("n");
-}
 
 export function Canvas({ className }: CanvasProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);

@@ -35,6 +35,9 @@ export function Toolbar() {
   const isDirty = useProjectStore((s) => s.isDirty);
   const removeSelected = useDiagramStore((s) => s.removeSelected);
   const rotateSelected = useDiagramStore((s) => s.rotateSelected);
+  const copySelection = useDiagramStore((s) => s.copySelection);
+  const cutSelection = useDiagramStore((s) => s.cutSelection);
+  const pasteClipboard = useDiagramStore((s) => s.pasteClipboard);
 
   // The label next to the app name should reflect what's actually on disk so
   // saving / loading is visibly reflected. The bare meta.title is a poor
@@ -56,7 +59,10 @@ export function Toolbar() {
     exportCsv,
   } = useProjectIO();
 
-  // Global keyboard shortcuts
+  // Global keyboard shortcuts. We deliberately *don't* fire clipboard or
+  // undo/redo shortcuts when focus is in a text field — the user is editing
+  // a tag or parameter and the browser's native text-field clipboard /
+  // undo must win there.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const cmd = e.ctrlKey || e.metaKey;
@@ -81,11 +87,29 @@ export function Toolbar() {
       } else if ((e.key === "y" || e.key === "Y") && !inField) {
         e.preventDefault();
         temporal.redo();
+      } else if ((e.key === "c" || e.key === "C") && !inField) {
+        e.preventDefault();
+        copySelection();
+      } else if ((e.key === "x" || e.key === "X") && !inField) {
+        e.preventDefault();
+        cutSelection();
+      } else if ((e.key === "v" || e.key === "V") && !inField) {
+        e.preventDefault();
+        pasteClipboard();
       }
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [newProject, openProject, save, saveAs, temporal]);
+  }, [
+    newProject,
+    openProject,
+    save,
+    saveAs,
+    temporal,
+    copySelection,
+    cutSelection,
+    pasteClipboard,
+  ]);
 
   // Rotation shortcuts work without modifier keys
   useEffect(() => {

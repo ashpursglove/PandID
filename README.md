@@ -250,19 +250,26 @@ That rasterises the SVG to PNG at 1024×1024 and then has `@tauri-apps/cli icon`
 
 Because moving the mouse is for people with patience.
 
-| Action                       | Shortcut              |
-| ---------------------------- | --------------------- |
-| New project                  | Ctrl + N              |
-| Open                         | Ctrl + O              |
-| Save                         | Ctrl + S              |
-| Save As                      | Ctrl + Shift + S      |
-| Undo                         | Ctrl + Z              |
+| Action                       | Shortcut                     |
+| ---------------------------- | ---------------------------- |
+| New project                  | Ctrl + N                     |
+| Open                         | Ctrl + O                     |
+| Save                         | Ctrl + S                     |
+| Save As                      | Ctrl + Shift + S             |
+| Undo                         | Ctrl + Z                     |
 | Redo                         | Ctrl + Y or Ctrl + Shift + Z |
-| Delete selected              | Delete / Backspace    |
-| Rotate selected 90° CW       | R                     |
-| Rotate selected 90° CCW      | Shift + R             |
+| Cut selection                | Ctrl + X                     |
+| Copy selection               | Ctrl + C                     |
+| Paste                        | Ctrl + V                     |
+| Delete selected              | Delete / Backspace           |
+| Rotate selected 90° CW       | R                            |
+| Rotate selected 90° CCW      | Shift + R                    |
 
-Rotation shortcuts ignore the modifier-free press when you're typing in a text field, so you can't accidentally rotate the pump by typing "Reactor" into its tag. You're welcome.
+Copy/cut grab every node and edge currently selected (single-click or marquee-drag a box around several). Paste drops the copies back in offset by 30 px so you can see them, gives them fresh IDs, and re-issues tag numbers so two P-101s never exist on the same diagram. Internal wiring between copied nodes is preserved; edges with one foot outside the selection are dropped (they'd dangle).
+
+Shortcuts ignore key presses when you're typing into a text field, so you can't accidentally cut a pump by typing "cut" into a tag, and Ctrl+C inside a parameter field copies the *text*, not the diagram. You're welcome.
+
+Undo coalesces rapid changes — a node drag becomes one history entry, not 200, so Ctrl+Z actually goes somewhere visible instead of reverting the position by a sub-pixel.
 
 ---
 
