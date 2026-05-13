@@ -104,6 +104,7 @@ Forever.
 </p>
 
 ### The Hydraulics Engine
+#### Pick a start node, pick an end node, pick a fluid, hit **Solve**.
 
 <p align="center">
 <img width="455" height="237" alt="image" src="https://github.com/user-attachments/assets/a5ba2f5d-761f-43f3-9e67-a3e574d45641" />
@@ -112,7 +113,7 @@ Forever.
 
 </p>
 
-Pick a start node, pick an end node, pick a fluid, hit **Solve**. The engine:
+When solve is clicked, the engine:
 
 1. **Walks the graph** to find a route between the two nodes via process-line edges only.
 2. **Builds a system curve** out of the components on that path:
