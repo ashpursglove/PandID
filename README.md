@@ -181,14 +181,13 @@ When solve is clicked, the engine:
 
 ### Just give me the .exe
 
-A Windows MSI installer is built via `npm run tauri build` (see **Building** below). After install you get:
+Just download the latest release and go ham! it may take a bit of time to install itself the first time you open it but after that it should just run! Easy!
 
+After install you get:
 - Start menu shortcut with the proper icon
 - A `.pid` file association so double-clicking a project opens it
 - An uninstaller in Add/Remove Programs
 - An `Ash's PID Playground` folder under `%LOCALAPPDATA%\Programs\`
-
-If you only want to try it without installing, the standalone `pandid.exe` from `src-tauri/target/release/` runs on its own. WebView2 is shipped with Windows 10 1803+ and all Windows 11, so there's nothing to install.
 
 ### Run from source (dev mode)
 
@@ -370,26 +369,6 @@ Tap point, pipe tee, off-page connector.
 
 ---
 
-## Architecture (For The Curious)
-
-```
-src/
-  components/   UI: Toolbar, Palette, Canvas, Inspector, Analysis, Drawings
-  symbols/      All 133 ISO-style symbols + the registry + line styles
-  engine/       Pure-TS hydraulics engine. No React. No DOM. No JSX.
-  presets/      Curated common values: fluids, pumps, pipes, valves, filters
-  store/        Zustand stores: diagram, project, drawings, UI
-  io/           Save/load, SVG render, PDF export, BoM, CSV, geometry
-  pages/        Editor, Analysis, Drawings
-  hooks/        Useful React hooks
-  lib/          Small generic utilities
-src-tauri/      Rust shell (Tauri 2). Windows file-association hook. Splash log.
-```
-
-The engine in `src/engine/` is **deliberately framework-agnostic**. `engine/adapter.ts` is the only file that knows about React Flow's data shapes. To rewrite the engine in Rust later (which is on the roadmap), you replace the implementations in `engine/` while keeping `adapter.ts` and the `solve()` signature. The UI never knew anything about how the math got done.
-
----
-
 ## Project File Format
 
 `.pid` files are pretty-printed JSON with a `version` field. Current schema is **v2**. The migration path from v1 → v2 is in `src/io/projectFile.ts`. Old files keep opening as the schema evolves, because forwards-incompatible breakage is what corporate software does to you and I refuse to do it to anyone.
@@ -423,6 +402,26 @@ These are not bugs. They are the deliberate scope. The scope is:
 > Draw the diagram. Solve the hydraulics. Issue the PDF.
 
 If the scope grows, it grows because I want it to, not because a roadmap committee in San Jose decided it should.
+
+---
+
+## Architecture (For The Curious)
+
+```
+src/
+  components/   UI: Toolbar, Palette, Canvas, Inspector, Analysis, Drawings
+  symbols/      All 133 ISO-style symbols + the registry + line styles
+  engine/       Pure-TS hydraulics engine. No React. No DOM. No JSX.
+  presets/      Curated common values: fluids, pumps, pipes, valves, filters
+  store/        Zustand stores: diagram, project, drawings, UI
+  io/           Save/load, SVG render, PDF export, BoM, CSV, geometry
+  pages/        Editor, Analysis, Drawings
+  hooks/        Useful React hooks
+  lib/          Small generic utilities
+src-tauri/      Rust shell (Tauri 2). Windows file-association hook. Splash log.
+```
+
+The engine in `src/engine/` is **deliberately framework-agnostic**. `engine/adapter.ts` is the only file that knows about React Flow's data shapes. To rewrite the engine in Rust later (which is on the roadmap), you replace the implementations in `engine/` while keeping `adapter.ts` and the `solve()` signature. The UI never knew anything about how the math got done.
 
 ---
 
