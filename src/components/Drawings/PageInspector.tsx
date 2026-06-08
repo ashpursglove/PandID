@@ -77,6 +77,48 @@ export function PageInspector({ page }: Props) {
           </p>
         </Section>
 
+        {page.type === "title" && (
+          <Section title="Title / section text">
+            <Field label="Heading">
+              <textarea
+                value={page.titlePage?.heading ?? ""}
+                onChange={(e) =>
+                  updatePage(page.id, {
+                    titlePage: {
+                      heading: e.target.value,
+                      subheading: page.titlePage?.subheading ?? "",
+                    },
+                  })
+                }
+                rows={3}
+                placeholder="e.g. Electrical Single-Line Diagrams"
+                className="w-full resize-y rounded border border-zinc-700 bg-[var(--color-panel-2)] px-2 py-1.5 text-sm text-zinc-100 outline-none focus:border-sky-500"
+              />
+            </Field>
+            <Field label="Subheading (optional)">
+              <textarea
+                value={page.titlePage?.subheading ?? ""}
+                onChange={(e) =>
+                  updatePage(page.id, {
+                    titlePage: {
+                      heading: page.titlePage?.heading ?? "",
+                      subheading: e.target.value,
+                    },
+                  })
+                }
+                rows={3}
+                placeholder="e.g. Section 3 — Power distribution and motor control"
+                className="w-full resize-y rounded border border-zinc-700 bg-[var(--color-panel-2)] px-2 py-1.5 text-sm text-zinc-100 outline-none focus:border-sky-500"
+              />
+            </Field>
+            <p className="text-[10px] leading-relaxed text-zinc-500">
+              The heading is drawn big and centred on the sheet and wraps
+              automatically — long titles shrink to fit. Great for cover pages
+              and section dividers between drawing sets.
+            </p>
+          </Section>
+        )}
+
         {page.type === "bom" && page.bom && (
           <Section title="Bill of materials">
             <label className="flex items-center gap-2 text-[12px] text-zinc-300">

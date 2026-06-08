@@ -2,6 +2,7 @@ import { Toolbar } from "@/components/Toolbar/Toolbar";
 import { Editor } from "@/pages/Editor";
 import { Analysis } from "@/pages/Analysis";
 import { Drawings } from "@/pages/Drawings";
+import { ElectricalWorkspace } from "@/electrical/components/ElectricalWorkspace";
 import { useUIStore } from "@/store/uiStore";
 import { useDirtyTracker } from "@/hooks/useDirtyTracker";
 
@@ -17,8 +18,10 @@ export default function App() {
           <Editor />
         ) : tab === "analysis" ? (
           <Analysis />
-        ) : (
+        ) : tab === "drawings" ? (
           <Drawings />
+        ) : (
+          <ElectricalWorkspace />
         )}
       </div>
     </div>

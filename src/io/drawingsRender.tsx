@@ -12,11 +12,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { getSymbol } from "@/symbols/registry";
 import type { DiagramEdge, DiagramNode } from "@/store/diagramStore";
+import type { ElecEdge, ElecNode } from "@/electrical/store/electricalStore";
 import type { ProjectMeta } from "@/store/projectStore";
 import type {
   Annotation,
   AnalysisSnapshot,
   DrawingPage,
+  ElecScheduleSnapshot,
 } from "@/store/drawingsStore";
 import type { ComponentLoss, SinglePathResult } from "@/engine/types";
 
@@ -25,6 +27,7 @@ import {
   portWorldPosition,
 } from "./geometry";
 import {
+  DRAW_H,
   DRAW_W,
   DRAW_X,
   DRAW_Y,
@@ -38,7 +41,15 @@ import {
   wrapSvg,
 } from "./svgRender";
 import { computeNoteBox } from "./annotationLayout";
+import { resolveTagSide, tagSvgCoords } from "./tagPlacement";
 import { buildBom } from "./bom";
+import { renderSldPageBody } from "@/electrical/io/sldRender";
+import {
+  buildCableSchedule,
+  buildCableSummary,
+  buildElectricalBom,
+  buildLoadSchedule,
+} from "@/electrical/analysis/schedules";
 
 export interface PageRenderContext {
   meta: ProjectMeta;
@@ -67,11 +78,20 @@ export function renderDrawingPage(
     case "diagram":
       body = renderDiagramPageBody(page);
       break;
+    case "sld":
+      body = renderSldPageBody(page);
+      break;
     case "analysis":
       body = renderAnalysisPageBody(page);
       break;
     case "bom":
       body = renderBomPageBody(page, ctx);
+      break;
+    case "elec-schedule":
+      body = renderElecSchedulePageBody(page);
+      break;
+    case "title":
+      body = renderTitlePageBody(page);
       break;
     case "blank":
       body = "";
@@ -94,9 +114,12 @@ export function renderDrawingPage(
   // well below the inner frame (which is at y=MARGIN=8) so the text never
   // crosses the border line — earlier versions hugged the border too closely
   // and the ascenders kissed the inner rect on some pages.
-  const header = page.title
-    ? textAt(DRAW_X + 4, DRAW_Y + 11, page.title, 4.4, "start", true)
-    : "";
+  // Title / section pages carry their own large centred heading, so we skip
+  // the small top-left page-title strip to keep the sheet clean.
+  const header =
+    page.title && page.type !== "title"
+      ? textAt(DRAW_X + 4, DRAW_Y + 11, page.title, 4.4, "start", true)
+      : "";
 
   return wrapSvg(
     `${frame}\n${body}\n${annotations}\n${header}\n${titleBlock}`,
@@ -109,52 +132,21 @@ function renderDiagramPageBody(page: DrawingPage): string {
   if (!page.diagram) return "";
   const { nodes, edges, bounds } = page.diagram;
 
-  // The captured viewport bounds often include a lot of empty padding around
-  // the actual components (because the user framed the editor canvas, not
-  // tight content). To make the drawing fill the sheet, render only the
-  // nodes that overlap the captured viewport, and rescale to their *tight*
-  // bbox. Edges follow when both endpoints survive the filter.
-  const visibleNodes = nodes.filter((n) => nodeIntersectsBounds(n, bounds));
-  const renderedNodes = visibleNodes.length > 0 ? visibleNodes : nodes;
-  const idSet = new Set(renderedNodes.map((n) => n.id));
-  const renderedEdges = edges.filter(
-    (e) => idSet.has(e.source) && idSet.has(e.target),
-  );
-
-  // Pad the tight bounds slightly so symbols don't kiss the edge of the
-  // drawing area.
-  const tight = diagramBounds(renderedNodes);
-  const padW = (tight.maxX - tight.minX) * 0.04;
-  const padH = (tight.maxY - tight.minY) * 0.04;
-  const paddedBounds = {
-    minX: tight.minX - padW,
-    minY: tight.minY - padH,
-    maxX: tight.maxX + padW,
-    maxY: tight.maxY + padH,
-  };
-
-  return renderDiagramArea(renderedNodes, renderedEdges, {
-    bounds: paddedBounds,
+  // Reproduce exactly what the user had framed in the editor: render the whole
+  // captured diagram against the captured viewport rectangle, and clip to the
+  // drawing area so anything that was off-screen (or only partly visible) is
+  // cropped at the sheet edge rather than re-fitted. This makes "Send view to
+  // Drawings" behave like a screenshot of the current view.
+  return renderDiagramArea(nodes, edges, {
+    bounds,
     // Asymmetric padding: reserve a fatter top strip for the page title
-    // header that gets drawn over the body, but keep left/right/bottom tight
-    // so the diagram fills the sheet.
+    // header that gets drawn over the body.
     padding: 4,
     topPadding: 12,
+    clip: true,
     colorOverrides: page.colorOverrides,
     widthOverrides: page.widthOverrides,
   });
-}
-
-function nodeIntersectsBounds(
-  node: DiagramNode,
-  b: { minX: number; minY: number; maxX: number; maxY: number },
-): boolean {
-  const sym = getSymbol(node.data.symbolType);
-  const w = sym?.size.width ?? 64;
-  const h = sym?.size.height ?? 64;
-  const x = node.position.x;
-  const y = node.position.y;
-  return x < b.maxX && x + w > b.minX && y < b.maxY && y + h > b.minY;
 }
 
 /* ---------------------------- analysis page ----------------------------- */
@@ -622,7 +614,7 @@ function renderPumpSystemChartBlock(
       `<circle cx="${ox.toFixed(2)}" cy="${oy.toFixed(2)}" r="1.3" fill="#fde047" stroke="#0f172a" stroke-width="0.3" />`,
     );
     parts.push(
-      `<text x="${(ox + 2).toFixed(2)}" y="${(oy - 0.6).toFixed(2)}" font-size="2.0" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="600" fill="#0f172a">${escapeText(`Q=${r.qM3h.toFixed(2)} m³/h, H=${r.pumpHeadM.toFixed(2)} m`)}</text>`,
+      `<text x="${(ox + 2).toFixed(2)}" y="${(oy - 0.6).toFixed(2)}" font-size="2.0" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="bold" fill="#0f172a">${escapeText(`Q=${r.qM3h.toFixed(2)} m³/h, H=${r.pumpHeadM.toFixed(2)} m`)}</text>`,
     );
   }
 
@@ -724,7 +716,7 @@ function renderRoutePreviewBlock(
       targetY: t.y,
       sourcePosition: s.position,
       targetPosition: t.position,
-      borderRadius: 8,
+      borderRadius: 18,
     });
     const onPath = pathEdgeIds.has(edge.id);
     const stroke = hasPath ? (onPath ? "#f59e0b" : "#94a3b8") : "#0f172a";
@@ -773,11 +765,25 @@ function renderRoutePreviewBlock(
     if (node.id !== a.startId && node.id !== a.endId) continue;
     const symbol = getSymbol(node.data.symbolType);
     if (!symbol) continue;
-    const cx = (node.position.x + symbol.size.width / 2) * scale + offX;
-    const cy = (node.position.y + symbol.size.height) * scale + offY;
+    const rotation = (node.data.rotation as number | undefined) ?? 0;
     const tag = node.data.tag ?? node.data.label ?? symbol.defaultLabel ?? "";
+    if (!tag) continue;
+    const side = resolveTagSide(symbol.ports, rotation);
+    const fontSize = 2.3;
+    const { x, y, anchor } = tagSvgCoords(
+      side,
+      node.position.x,
+      node.position.y,
+      symbol.size.width,
+      symbol.size.height,
+      scale,
+      offX,
+      offY,
+      fontSize,
+      1.2,
+    );
     parts.push(
-      `<text x="${cx.toFixed(3)}" y="${(cy + 2.4).toFixed(3)}" font-size="2.3" font-family="Inter, Helvetica, Arial, sans-serif" text-anchor="middle" font-weight="600" fill="#b45309">${escapeText(tag)}</text>`,
+      `<text x="${x.toFixed(3)}" y="${y.toFixed(3)}" font-size="${fontSize}" font-family="Inter, Helvetica, Arial, sans-serif" text-anchor="${anchor}" font-weight="bold" fill="#b45309">${escapeText(tag)}</text>`,
     );
   }
 
@@ -836,7 +842,7 @@ function renderComponentTable(
   cols.forEach((c) => {
     const tx = c.align === "end" ? cx + c.w - 1.5 : cx + 1.5;
     parts.push(
-      `<text x="${tx}" y="${y + 3.6}" font-size="2.3" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="600" fill="#e2e8f0" text-anchor="${c.align}">${escapeText(c.label.toUpperCase())}</text>`,
+      `<text x="${tx}" y="${y + 3.6}" font-size="2.3" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="bold" fill="#e2e8f0" text-anchor="${c.align}">${escapeText(c.label.toUpperCase())}</text>`,
     );
     if (c.unit) {
       parts.push(
@@ -898,7 +904,7 @@ function renderComponentTable(
         col.align === "end" ? cx + col.w - 1.5 : cx + 1.5;
       parts.push(
         `<text x="${tx}" y="${rowY + 3.8}" font-size="2.5" font-family="Inter, Helvetica, Arial, sans-serif" ${
-          v.bold ? 'font-weight="600"' : ""
+          v.bold ? 'font-weight="bold"' : ""
         } fill="#0f172a" text-anchor="${col.align}">${escapeText(v.text)}</text>`,
       );
       cx += col.w;
@@ -964,7 +970,7 @@ function renderRegimeBadge(
   const h = 3.4;
   return (
     `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${w.toFixed(2)}" height="${h}" rx="1" fill="${fill}" stroke="${stroke}" stroke-width="0.3" />` +
-    `<text x="${(x + w / 2).toFixed(2)}" y="${(y + 2.4).toFixed(2)}" font-size="2.1" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="600" fill="${stroke}" text-anchor="middle">${escapeText(label)}</text>`
+    `<text x="${(x + w / 2).toFixed(2)}" y="${(y + 2.4).toFixed(2)}" font-size="2.1" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="bold" fill="${stroke}" text-anchor="middle">${escapeText(label)}</text>`
   );
 }
 
@@ -977,7 +983,7 @@ function renderLossBreakdownBlock(
   w: number,
 ) {
   out.push(
-    `<text x="${x}" y="${y + 2.2}" font-size="2.0" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="600" fill="#64748b" letter-spacing="0.4">${escapeText("LOSS BREAKDOWN")}</text>`,
+    `<text x="${x}" y="${y + 2.2}" font-size="2.0" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="bold" fill="#64748b" letter-spacing="0.4">${escapeText("LOSS BREAKDOWN")}</text>`,
   );
   const lines: { label: string; v?: number }[] = [
     { label: "Friction (pipe wall)", v: c.frictionHeadM },
@@ -1016,7 +1022,7 @@ function renderPipeGeometryBlock(
   w: number,
 ) {
   out.push(
-    `<text x="${x}" y="${y + 2.2}" font-size="2.0" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="600" fill="#64748b" letter-spacing="0.4">${escapeText("PIPE GEOMETRY")}</text>`,
+    `<text x="${x}" y="${y + 2.2}" font-size="2.0" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="bold" fill="#64748b" letter-spacing="0.4">${escapeText("PIPE GEOMETRY")}</text>`,
   );
   const rows: { label: string; value: string }[] = [
     {
@@ -1049,7 +1055,7 @@ function renderPipeGeometryBlock(
       `<text x="${x}" y="${cy}" font-size="2.2" font-family="Inter, Helvetica, Arial, sans-serif" fill="#64748b">${escapeText(r.label)}</text>`,
     );
     out.push(
-      `<text x="${x + 22}" y="${cy}" font-size="2.2" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="600" fill="#0f172a">${escapeText(r.value)}</text>`,
+      `<text x="${x + 22}" y="${cy}" font-size="2.2" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="bold" fill="#0f172a">${escapeText(r.value)}</text>`,
     );
     cy += 3.4;
   }
@@ -1075,6 +1081,438 @@ function prettyKind(kind: string): string {
         .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
         .join(" ");
   }
+}
+
+/* --------------------- electrical schedule pages ------------------------ */
+/*
+ * Electrical schedules (loads, cables, BOM) are laid out as a single flowing
+ * document that is paginated across as many A3 sheets as the data needs. Both
+ * the page-count (used when sending sheets to the Drawings tab) and the actual
+ * render share the same deterministic layout pass, so page N always shows the
+ * same slice whether we're counting or drawing.
+ */
+
+function num1(v: number): string {
+  return Number.isFinite(v) ? v.toFixed(1) : "—";
+}
+function num2(v: number): string {
+  return Number.isFinite(v) ? v.toFixed(2) : "—";
+}
+
+const ELEC_ROW_H = 4.4;
+/** Bottom Y at which a sheet's table area ends (leaves room for the frame). */
+const SCHED_CONTENT_BOTTOM = PAGE_H - 65;
+const SCHED_HEADING_TOP = DRAW_Y + 19;
+
+interface SchedHeaderBlock {
+  type: "header";
+  x: number;
+  title: string;
+  labels: string[];
+  widths: number[];
+}
+interface SchedRowBlock {
+  type: "row";
+  x: number;
+  cells: string[];
+  widths: number[];
+  shaded: boolean;
+}
+type SchedBlock = SchedHeaderBlock | SchedRowBlock;
+
+interface SchedSection {
+  header: Omit<SchedHeaderBlock, "type">;
+  rows: Omit<SchedRowBlock, "type">[];
+  /** Trailing strip kept with the section (e.g. a board total). */
+  trailer?: Omit<SchedRowBlock, "type">;
+  /** Blank space after the section. */
+  gap: number;
+}
+
+interface SchedulePlan {
+  title: string;
+  subtitle: string[];
+  /** Vertical space consumed by the heading block, so the table top is fixed. */
+  headingHeight: number;
+  sections: SchedSection[];
+}
+
+/** Height a wrapped table header occupies (mirrors drawWrappedTableHeader). */
+function headerBandHeight(labels: string[], widths: number[]): number {
+  const font = 2.5;
+  const lineH = 2.9;
+  const maxLines = Math.max(
+    1,
+    ...labels.map((h, i) => wrapByWidth(h, widths[i] - 2.5, font).length),
+  );
+  // 3 for the title line + band height.
+  return 3 + maxLines * lineH + 2;
+}
+
+/** A block plus the exact vertical space it occupies (incl. any trailing gap),
+ *  so pagination and rendering advance the cursor identically. */
+interface PageItem {
+  block: SchedBlock;
+  advance: number;
+}
+
+/**
+ * Walk the plan's sections and assign each block to a page, re-emitting the
+ * relevant table header at the top of a continuation page so every sheet is
+ * self-contained. Each item carries its own `advance` (height + trailing gap)
+ * so the renderer never drifts out of sync with the page-break decisions.
+ */
+function paginateSchedule(plan: SchedulePlan): PageItem[][] {
+  const top = SCHED_HEADING_TOP + plan.headingHeight;
+  const capacity = Math.max(ELEC_ROW_H * 4, SCHED_CONTENT_BOTTOM - top);
+
+  const pages: PageItem[][] = [];
+  let cur: PageItem[] = [];
+  let y = 0;
+  const flush = () => {
+    pages.push(cur);
+    cur = [];
+    y = 0;
+  };
+
+  for (const sec of plan.sections) {
+    const bodyRows = sec.trailer ? [...sec.rows, sec.trailer] : sec.rows;
+    if (bodyRows.length === 0) continue;
+    const hH = headerBandHeight(sec.header.labels, sec.header.widths);
+
+    // Avoid an orphan header at the very bottom of a page.
+    if (y > 0 && y + hH + ELEC_ROW_H > capacity) flush();
+    cur.push({ block: { type: "header", ...sec.header }, advance: hH });
+    y += hH;
+
+    bodyRows.forEach((r, i) => {
+      if (y + ELEC_ROW_H > capacity) {
+        flush();
+        cur.push({
+          block: { type: "header", ...sec.header, title: `${sec.header.title} (cont.)` },
+          advance: hH,
+        });
+        y += hH;
+      }
+      const isLast = i === bodyRows.length - 1;
+      const advance = ELEC_ROW_H + (isLast ? sec.gap : 0);
+      cur.push({ block: { type: "row", ...r }, advance });
+      y += advance;
+    });
+  }
+  flush();
+  return pages.length > 0 ? pages : [[]];
+}
+
+/* ---- per-kind plan builders ---- */
+
+function buildLoadSchedulePlan(nodes: ElecNode[], edges: ElecEdge[]): SchedulePlan {
+  const schedule = buildLoadSchedule(nodes, edges);
+  const allBoards = schedule.unassigned
+    ? [...schedule.boards, schedule.unassigned]
+    : schedule.boards;
+
+  const startX = DRAW_X + 6;
+  const tableW = DRAW_W - 12;
+  const cols = [
+    { label: "Tag", w: tableW * 0.12 },
+    { label: "Description", w: tableW * 0.22 },
+    { label: "Phases (Ph)", w: tableW * 0.07 },
+    { label: "Voltage (V)", w: tableW * 0.08 },
+    { label: "Connected (kW)", w: tableW * 0.1 },
+    { label: "Demand factor (DF)", w: tableW * 0.09 },
+    { label: "Demand (kW)", w: tableW * 0.09 },
+    { label: "Power factor (PF)", w: tableW * 0.08 },
+    { label: "Apparent demand (kVA)", w: tableW * 0.08 },
+    { label: "Full-load current (A)", w: tableW * 0.07 },
+  ];
+  const widths = cols.map((c) => c.w);
+  const labels = cols.map((c) => c.label);
+
+  const sections: SchedSection[] = [];
+  for (const b of allBoards) {
+    if (b.rows.length === 0) continue;
+    const level = b.level ?? 0;
+    const indent = level * 5;
+    const prefix = level > 0 ? `${"› ".repeat(level)}Sub-board: ` : "";
+    const w = widths.map((cw, i) => (i === 0 ? cw - indent : cw));
+    const rows = b.rows.map((r, i) => ({
+      x: startX + indent,
+      cells: [
+        r.isSubBoard ? `› ${r.tag}` : r.tag,
+        r.description,
+        r.phases,
+        String(r.voltageV),
+        num2(r.connectedKW),
+        num2(r.demandFactor),
+        num2(r.demandKW),
+        num2(r.powerFactor),
+        num2(r.demandKVA),
+        num1(r.fullLoadCurrentA),
+      ],
+      widths: w,
+      shaded: i % 2 === 1,
+    }));
+    const trailer = {
+      x: startX + indent,
+      cells: [
+        level > 0 ? "Sub-board total" : "Board total (incl. sub-boards)",
+        "",
+        "",
+        "",
+        num2(b.totalConnectedKW),
+        "",
+        num2(b.totalDemandKW),
+        "",
+        num2(b.totalDemandKVA),
+        num1(b.totalCurrentA),
+      ],
+      widths: w,
+      shaded: true,
+    };
+    sections.push({
+      header: {
+        x: startX + indent,
+        title: `${prefix}${b.boardTag} — ${b.boardDescription} · ${b.voltageV} V`,
+        labels,
+        widths: w,
+      },
+      rows,
+      trailer,
+      gap: 4,
+    });
+  }
+
+  return {
+    title: "Schedule of Loads",
+    subtitle: [
+      `Total connected ${num1(schedule.grand.connectedKW)} kW · maximum demand ${num1(schedule.grand.demandKW)} kW (${num1(schedule.grand.demandKVA)} kVA)`,
+    ],
+    headingHeight: 10,
+    sections,
+  };
+}
+
+function buildCableSchedulePlan(nodes: ElecNode[], edges: ElecEdge[]): SchedulePlan {
+  const rows = buildCableSchedule(nodes, edges);
+  const startX = DRAW_X + 6;
+  const tableW = DRAW_W - 12;
+  const cols = [
+    { label: "Cable tag", w: tableW * 0.085 },
+    { label: "From", w: tableW * 0.12 },
+    { label: "To", w: tableW * 0.12 },
+    { label: "Cable size / specification", w: tableW * 0.165 },
+    { label: "Length (m)", w: tableW * 0.09 },
+    { label: "Design current Ib (A)", w: tableW * 0.07 },
+    { label: "Ampacity Iz (A)", w: tableW * 0.07 },
+    { label: "Utilisation (%)", w: tableW * 0.06 },
+    { label: "Op. temp (°C / max)", w: tableW * 0.08 },
+    { label: "Volt drop (V)", w: tableW * 0.065 },
+    { label: "Volt drop (%)", w: tableW * 0.065 },
+  ];
+  const widths = cols.map((c) => c.w);
+  const labels = cols.map((c) => c.label);
+  const noLen = "no length given";
+
+  const rowBlocks = rows.map((r, i) => ({
+    x: startX,
+    cells: [
+      r.tag,
+      r.from,
+      r.to,
+      r.sizeDescription,
+      r.hasLength ? num1(r.lengthM) : noLen,
+      r.hasLoad ? num1(r.designCurrentA) : "no load",
+      num1(r.ampacityA),
+      r.hasLoad ? `${Math.round(r.utilizationPct)}%` : "—",
+      r.hasLoad ? `${Math.round(r.operatingTempC)} / ${r.maxTempC}` : "—",
+      !r.hasLength ? noLen : r.hasLoad ? num2(r.voltageDropV ?? 0) : "0",
+      !r.hasLength ? noLen : r.hasLoad ? `${num2(r.voltageDropPct ?? 0)}%` : "0",
+    ],
+    widths,
+    shaded: i % 2 === 1,
+  }));
+
+  const totalLength = rows.reduce((a, r) => a + r.lengthM, 0);
+  const worstVd = rows.reduce(
+    (m, r) => (r.voltageDropPct != null ? Math.max(m, r.voltageDropPct) : m),
+    0,
+  );
+  const overloaded = rows.filter((r) => r.hasLoad && r.utilizationPct > 100).length;
+  const subBits = [
+    `${rows.length} feeders`,
+    `${num1(totalLength)} m total routed length`,
+  ];
+  if (worstVd > 0) subBits.push(`worst volt drop ${num1(worstVd)}%`);
+  if (overloaded > 0) subBits.push(`${overloaded} overloaded`);
+
+  return {
+    title: "Cable Schedule & Analysis",
+    subtitle: [
+      subBits.join(" · "),
+      "Key:  Ib = design (load) current · Iz = continuous current rating (ampacity) · Util = Ib/Iz · Op temp = est. conductor temperature / insulation max · Vd = volt drop",
+    ],
+    headingHeight: 12.5,
+    sections: [
+      {
+        header: { x: startX, title: "Power feeders", labels, widths },
+        rows: rowBlocks,
+        gap: 0,
+      },
+    ],
+  };
+}
+
+function buildElecBomPlan(nodes: ElecNode[], edges: ElecEdge[]): SchedulePlan {
+  const rows = buildElectricalBom(nodes);
+  const startX = DRAW_X + 6;
+  const tableW = DRAW_W - 12;
+  const cols = [
+    { label: "Item No. (#)", w: tableW * 0.08 },
+    { label: "Description", w: tableW * 0.28 },
+    { label: "Rating", w: tableW * 0.24 },
+    { label: "Quantity (Qty)", w: tableW * 0.08 },
+    { label: "Tags", w: tableW * 0.32 },
+  ];
+  const widths = cols.map((c) => c.w);
+  const labels = cols.map((c) => c.label);
+
+  const rowBlocks = rows.map((r) => ({
+    x: startX,
+    cells: [
+      String(r.itemNo),
+      r.description,
+      r.rating || "—",
+      String(r.quantity),
+      r.tags || "—",
+    ],
+    widths,
+    shaded: r.itemNo % 2 === 0,
+  }));
+
+  const totalItems = rows.reduce((a, r) => a + r.quantity, 0);
+
+  const sections: SchedSection[] = [
+    {
+      header: { x: startX, title: "Equipment", labels, widths },
+      rows: rowBlocks,
+      gap: rowBlocks.length > 0 ? 8 : 0,
+    },
+  ];
+
+  // Cable summary: total length needed of each cable type across the SLD.
+  const cableSummary = buildCableSummary(nodes, edges);
+  let totalCableLength = 0;
+  if (cableSummary.length > 0) {
+    const cCols = [
+      { label: "Cable type / specification", w: tableW * 0.6 },
+      { label: "Runs", w: tableW * 0.12 },
+      { label: "Total length (m)", w: tableW * 0.28 },
+    ];
+    const cWidths = cCols.map((c) => c.w);
+    const cLabels = cCols.map((c) => c.label);
+    const cableRows = cableSummary.map((c, i) => {
+      totalCableLength += c.totalLengthM;
+      return {
+        x: startX,
+        cells: [
+          c.specification,
+          String(c.runs),
+          c.hasLength ? num1(c.totalLengthM) : "no length given",
+        ],
+        widths: cWidths,
+        shaded: i % 2 === 1,
+      };
+    });
+    const trailer = {
+      x: startX,
+      cells: [
+        "Total",
+        String(cableSummary.reduce((a, c) => a + c.runs, 0)),
+        num1(totalCableLength),
+      ],
+      widths: cWidths,
+      shaded: true,
+    };
+    sections.push({
+      header: {
+        x: startX,
+        title: "Cable summary — total length by type",
+        labels: cLabels,
+        widths: cWidths,
+      },
+      rows: cableRows,
+      trailer,
+      gap: 0,
+    });
+  }
+
+  const subtitle =
+    cableSummary.length > 0
+      ? `${rows.length} line items · ${totalItems} components · ${cableSummary.length} cable types · ${num1(totalCableLength)} m cable total`
+      : `${rows.length} line items · ${totalItems} components`;
+
+  return {
+    title: "Electrical Bill of Materials",
+    subtitle: [subtitle],
+    headingHeight: 10,
+    sections,
+  };
+}
+
+function buildElecSchedulePlan(snap: ElecScheduleSnapshot): SchedulePlan {
+  switch (snap.kind) {
+    case "loads":
+      return buildLoadSchedulePlan(snap.nodes, snap.edges);
+    case "cables":
+      return buildCableSchedulePlan(snap.nodes, snap.edges);
+    case "bom":
+      return buildElecBomPlan(snap.nodes, snap.edges);
+  }
+}
+
+/** How many A3 sheets this schedule/BOM needs. Used when sending to Drawings. */
+export function elecSchedulePageCount(snap: ElecScheduleSnapshot): number {
+  return paginateSchedule(buildElecSchedulePlan(snap)).length;
+}
+
+function renderElecSchedulePageBody(page: DrawingPage): string {
+  const snap = page.elecSchedule;
+  if (!snap) return "";
+  const plan = buildElecSchedulePlan(snap);
+  const pages = paginateSchedule(plan);
+  const total = pages.length;
+  const idx = Math.min(Math.max(snap.pageIndex ?? 0, 0), total - 1);
+  const items = pages[idx] ?? [];
+
+  const lines: string[] = [];
+  const startX = DRAW_X + 6;
+
+  // Heading (repeated on every sheet so each is self-contained).
+  let cursorY = SCHED_HEADING_TOP;
+  const titleSuffix = total > 1 ? ` — sheet ${idx + 1} of ${total}` : "";
+  lines.push(
+    textAt(startX, cursorY, `${plan.title}${titleSuffix}`, 5.6, "start", true),
+  );
+  cursorY += 4;
+  plan.subtitle.forEach((s, i) => {
+    lines.push(textAt(startX, cursorY, s, i === 0 ? 3 : 2.2));
+    cursorY += i === 0 ? (plan.subtitle.length > 1 ? 3.5 : 6) : 5;
+  });
+
+  // Table content for this sheet's slice. Advance the cursor by each item's
+  // pre-computed height so spacing matches the pagination pass exactly.
+  let y = SCHED_HEADING_TOP + plan.headingHeight;
+  for (const { block: b, advance } of items) {
+    if (b.type === "header") {
+      drawWrappedTableHeader(lines, b.x, y, b.title, b.labels, b.widths);
+    } else {
+      drawTableRow(lines, b.x, y, b.cells, b.widths, ELEC_ROW_H, b.shaded);
+    }
+    y += advance;
+  }
+
+  return `<g>${lines.join("")}</g>`;
 }
 
 /* --------------------------- BOM page ----------------------------------- */
@@ -1255,6 +1693,122 @@ function drawTableHeader(
     cx += widths[i];
   });
   return y + 6;
+}
+
+/**
+ * Like `drawTableHeader` but word-wraps each column label so full names fit in
+ * narrow columns instead of being truncated. The grey band grows to fit the
+ * tallest wrapped header.
+ */
+function drawWrappedTableHeader(
+  lines: string[],
+  x: number,
+  y: number,
+  title: string,
+  headers: string[],
+  widths: number[],
+): number {
+  if (title) {
+    lines.push(textAt(x, y, title, 3.6, "start", true));
+    y += 3;
+  }
+  const font = 2.5;
+  const lineH = 2.9;
+  const wrapped = headers.map((h, i) => wrapByWidth(h, widths[i] - 2.5, font));
+  const maxLines = Math.max(1, ...wrapped.map((w) => w.length));
+  const bandH = maxLines * lineH + 2;
+  const totalW = widths.reduce((a, b) => a + b, 0);
+  lines.push(
+    `<rect x="${x}" y="${y}" width="${totalW}" height="${bandH}" fill="#e2e8f0" />`,
+  );
+  let cx = x + 1.5;
+  wrapped.forEach((wl, i) => {
+    wl.forEach((ln, li) => {
+      lines.push(
+        textAt(cx, y + 2.8 + li * lineH, ln, font, "start", true),
+      );
+    });
+    cx += widths[i];
+  });
+  return y + bandH;
+}
+
+/** Greedy word-wrap to a pixel-free mm width using the same char-width
+ *  heuristic as `truncate`. */
+/* ----------------------------- title page ------------------------------ */
+
+/**
+ * Renders a title / section divider sheet: a large, centred, word-wrapped
+ * heading with an optional subheading underneath a rule. The heading font
+ * shrinks automatically so long titles still fit the sheet.
+ */
+function renderTitlePageBody(page: DrawingPage): string {
+  const content = page.titlePage;
+  const heading = (content?.heading ?? "").trim() || page.title || "Section";
+  const subheading = (content?.subheading ?? "").trim();
+
+  const cx = DRAW_X + DRAW_W / 2;
+  const maxTextW = DRAW_W * 0.82;
+
+  // Shrink the heading until the wrapped block is a sensible number of lines.
+  let headingSize = 30;
+  let lines = wrapByWidth(heading, maxTextW, headingSize);
+  while (lines.length > 3 && headingSize > 12) {
+    headingSize -= 2;
+    lines = wrapByWidth(heading, maxTextW, headingSize);
+  }
+  const headLineH = headingSize * 1.2;
+
+  const subSize = 8;
+  const subLines = subheading ? wrapByWidth(subheading, maxTextW, subSize) : [];
+  const subLineH = subSize * 1.4;
+  const ruleGap = subLines.length ? 14 : 0;
+
+  const blockH =
+    lines.length * headLineH + ruleGap + subLines.length * subLineH;
+
+  const top = DRAW_Y + Math.max(0, (DRAW_H - blockH) / 2);
+  let baseline = top + headingSize;
+
+  const parts: string[] = [];
+  for (const line of lines) {
+    parts.push(textAt(cx, baseline, line, headingSize, "middle", true));
+    baseline += headLineH;
+  }
+
+  if (subLines.length) {
+    const ruleY = baseline - headLineH + ruleGap * 0.5;
+    const ruleHalf = Math.min(maxTextW, 150) / 2;
+    parts.push(
+      `<line x1="${(cx - ruleHalf).toFixed(2)}" y1="${ruleY.toFixed(2)}" x2="${(cx + ruleHalf).toFixed(2)}" y2="${ruleY.toFixed(2)}" stroke="#0f172a" stroke-width="0.5" />`,
+    );
+    baseline = ruleY + ruleGap * 0.5 + subSize;
+    for (const line of subLines) {
+      parts.push(textAt(cx, baseline, line, subSize, "middle", false));
+      baseline += subLineH;
+    }
+  }
+
+  return parts.join("\n");
+}
+
+function wrapByWidth(text: string, widthMm: number, fontMm: number): string[] {
+  const charMm = fontMm * 0.55;
+  const maxChars = Math.max(3, Math.floor(widthMm / charMm));
+  const words = text.split(/\s+/);
+  const out: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    const candidate = cur ? `${cur} ${w}` : w;
+    if (candidate.length > maxChars && cur) {
+      out.push(cur);
+      cur = w;
+    } else {
+      cur = candidate;
+    }
+  }
+  if (cur) out.push(cur);
+  return out.length > 0 ? out : [text];
 }
 
 function drawTableRow(

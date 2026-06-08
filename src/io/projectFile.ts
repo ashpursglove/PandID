@@ -8,8 +8,9 @@
 import type { DiagramEdge, DiagramNode } from "@/store/diagramStore";
 import type { Fluid, ProjectMeta } from "@/store/projectStore";
 import type { DrawingPage } from "@/store/drawingsStore";
+import type { ElecEdge, ElecNode } from "@/electrical/store/electricalStore";
 
-export const LATEST_VERSION = 2 as const;
+export const LATEST_VERSION = 3 as const;
 
 export interface ProjectFileV1 {
   version: 1;
@@ -29,6 +30,15 @@ export interface ProjectFileV2 extends Omit<ProjectFileV1, "version"> {
   companyLogo: string | null;
 }
 
+/** V3 adds the electrical single-line diagram (SLD) discipline. */
+export interface ProjectFileV3 extends Omit<ProjectFileV2, "version"> {
+  version: 3;
+  electrical: {
+    nodes: ElecNode[];
+    edges: ElecEdge[];
+  };
+}
+
 export interface ProjectAnalysisV1 {
   id: string;
   name: string;
@@ -37,7 +47,7 @@ export interface ProjectAnalysisV1 {
   results?: unknown;
 }
 
-export type ProjectFile = ProjectFileV2;
+export type ProjectFile = ProjectFileV3;
 
 export interface SerialiseInput {
   meta: ProjectMeta;
@@ -47,6 +57,8 @@ export interface SerialiseInput {
   analyses?: ProjectAnalysisV1[];
   drawings?: DrawingPage[];
   companyLogo?: string | null;
+  electricalNodes?: ElecNode[];
+  electricalEdges?: ElecEdge[];
 }
 
 export function serialise(input: SerialiseInput): string {
@@ -61,6 +73,10 @@ export function serialise(input: SerialiseInput): string {
     analyses: input.analyses ?? [],
     drawings: input.drawings ?? [],
     companyLogo: input.companyLogo ?? null,
+    electrical: {
+      nodes: input.electricalNodes ?? [],
+      edges: input.electricalEdges ?? [],
+    },
   };
   return JSON.stringify(file, null, 2);
 }
@@ -104,7 +120,13 @@ function migrate(raw: Record<string, unknown>): ProjectFile {
     >;
   }
   if (current.version === 2) {
-    return validateV2(current);
+    current = migrateV2toV3(validateV2(current)) as unknown as Record<
+      string,
+      unknown
+    >;
+  }
+  if (current.version === 3) {
+    return validateV3(current);
   }
   throw new ProjectParseError(
     `Unknown project file version: ${current.version}`,
@@ -156,5 +178,29 @@ function validateV2(raw: Record<string, unknown>): ProjectFileV2 {
     version: 2,
     drawings,
     companyLogo,
+  };
+}
+
+function migrateV2toV3(v2: ProjectFileV2): ProjectFileV3 {
+  return {
+    ...v2,
+    version: 3,
+    electrical: { nodes: [], edges: [] },
+  };
+}
+
+function validateV3(raw: Record<string, unknown>): ProjectFileV3 {
+  const v2 = validateV2({ ...raw, version: 2 });
+  const elecRaw = raw.electrical as
+    | { nodes?: unknown; edges?: unknown }
+    | undefined;
+  const electrical = {
+    nodes: Array.isArray(elecRaw?.nodes) ? (elecRaw!.nodes as ElecNode[]) : [],
+    edges: Array.isArray(elecRaw?.edges) ? (elecRaw!.edges as ElecEdge[]) : [],
+  };
+  return {
+    ...v2,
+    version: 3,
+    electrical,
   };
 }

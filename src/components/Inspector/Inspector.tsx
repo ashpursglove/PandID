@@ -7,6 +7,10 @@ import { getSymbol } from "@/symbols/registry";
 import { LINE_STYLES, LINE_TYPE_ORDER } from "@/symbols/lines/lineStyles";
 import type { LineType, PipeEdgeData } from "@/types/diagram";
 import { describeEffectiveHydraulics } from "@/engine/effective";
+import { IncludeInReportsRow } from "@/components/shared/IncludeInReportsRow";
+import { ZoneInspector } from "@/components/shared/ZoneInspector";
+import { DEFAULT_ZONE_COLOR, isZoneNode } from "@/components/shared/zone";
+import { includeInReports } from "@/io/reporting";
 import { cn } from "@/lib/utils";
 
 import { ParamField } from "./ParamField";
@@ -97,6 +101,18 @@ function NodeForm({ nodeId }: { nodeId: string }) {
   const updateNodeData = useDiagramStore((s) => s.updateNodeData);
 
   if (!node) return null;
+
+  if (isZoneNode(node)) {
+    return (
+      <ZoneInspector
+        label={(node.data.zoneLabel as string) ?? ""}
+        color={(node.data.zoneColor as string) ?? DEFAULT_ZONE_COLOR}
+        onLabel={(zoneLabel) => updateNodeData(nodeId, { zoneLabel })}
+        onColor={(zoneColor) => updateNodeData(nodeId, { zoneColor })}
+      />
+    );
+  }
+
   const symbol = getSymbol(node.data.symbolType);
   if (!symbol) {
     return (
@@ -142,6 +158,11 @@ function NodeForm({ nodeId }: { nodeId: string }) {
           />
         </label>
         <RotationRow nodeId={nodeId} />
+        <IncludeInReportsRow
+          checked={includeInReports(node.data)}
+          onChange={(v) => updateNodeData(nodeId, { includeInReports: v })}
+          label="Include in BOM"
+        />
       </Section>
 
       {renderNodePresets(symbol.type, params, (next) =>
@@ -635,11 +656,37 @@ function EdgeForm({ edgeId }: { edgeId: string }) {
   const edge = useDiagramStore((s) => s.edges.find((e) => e.id === edgeId));
   const updateEdgeData = useDiagramStore((s) => s.updateEdgeData);
   const setLastPipePreset = useDiagramStore((s) => s.setLastPipePreset);
+  const removeEdgeById = useDiagramStore((s) => s.removeEdgeById);
 
   if (!edge) return null;
 
   const data: PipeEdgeData = edge.data ?? {};
   const pipe = data.pipe ?? {};
+
+  // Bolted (direct) connection: no pipe to configure — describe it and offer
+  // an Unbolt action to break the joint.
+  if (data.direct) {
+    return (
+      <div className="flex flex-col gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-zinc-100">
+            Bolted connection
+          </h3>
+          <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
+            A direct, no-pipe joint — the two components are mounted together
+            (e.g. a flange-mounted valve on a pump).
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => removeEdgeById(edgeId)}
+          className="self-start rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-300 hover:border-red-500 hover:text-red-300"
+        >
+          Unbolt (remove connection)
+        </button>
+      </div>
+    );
+  }
 
   function patchPipe(patch: Record<string, unknown>) {
     const clearsPreset =
@@ -714,6 +761,28 @@ function EdgeForm({ edgeId }: { edgeId: string }) {
             onChange={(v) => updateEdgeData(edgeId, { tag: v })}
           />
         </label>
+        <IncludeInReportsRow
+          checked={includeInReports(data)}
+          onChange={(v) => updateEdgeData(edgeId, { includeInReports: v })}
+          label="Include in BOM"
+        />
+      </Section>
+
+      <Section title="Routing">
+        <p className="px-1 text-[10px] leading-snug text-zinc-500">
+          Double-click a selected pipe to drop a draggable bend point. Drag
+          points to arrange the line; double-click a point to remove it.
+        </p>
+        {(data.waypoints?.length ?? 0) > 0 && (
+          <button
+            type="button"
+            onClick={() => updateEdgeData(edgeId, { waypoints: [] })}
+            className="self-start rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-300 hover:border-sky-500 hover:text-sky-200"
+          >
+            Clear {data.waypoints!.length} bend point
+            {data.waypoints!.length === 1 ? "" : "s"}
+          </button>
+        )}
       </Section>
 
       <Section title="Pipe preset">

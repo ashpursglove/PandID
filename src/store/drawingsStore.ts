@@ -1,12 +1,26 @@
 import { create } from "zustand";
 
 import type { DiagramEdge, DiagramNode } from "@/store/diagramStore";
+import type { ElecEdge, ElecNode } from "@/electrical/store/electricalStore";
 import type { ProjectMeta } from "@/store/projectStore";
 import type { SinglePathResult } from "@/engine/types";
 
 /* ------------------------------ Page types ------------------------------ */
 
-export type DrawingPageType = "diagram" | "analysis" | "bom" | "blank";
+export type DrawingPageType =
+  | "diagram"
+  | "sld"
+  | "analysis"
+  | "bom"
+  | "elec-schedule"
+  | "title"
+  | "blank";
+
+/** Content for a title / section divider page: big wrapped heading + subtitle. */
+export interface TitlePageContent {
+  heading: string;
+  subheading?: string;
+}
 
 export interface DiagramView {
   /** World-space rectangle (in flow coords) captured from the editor viewport. */
@@ -15,6 +29,13 @@ export interface DiagramView {
    *  even if the user keeps editing the live drawing afterwards. */
   nodes: DiagramNode[];
   edges: DiagramEdge[];
+}
+
+/** Frozen snapshot of an electrical single-line diagram view. */
+export interface SldView {
+  bounds: { minX: number; minY: number; maxX: number; maxY: number };
+  nodes: ElecNode[];
+  edges: ElecEdge[];
 }
 
 export interface AnalysisSnapshot {
@@ -50,6 +71,20 @@ export interface BomConfig {
   includePipes: boolean;
 }
 
+/** Frozen snapshot used to render an electrical schedule / BOM as a drawing
+ *  sheet. The table is rebuilt from this snapshot at render time so the page
+ *  stays reproducible even if the live SLD changes afterwards. */
+export interface ElecScheduleSnapshot {
+  kind: "loads" | "cables" | "bom";
+  nodes: ElecNode[];
+  edges: ElecEdge[];
+  /** When the table is too long for one sheet it is split across consecutive
+   *  pages. Each page renders only its slice of the (deterministically rebuilt)
+   *  layout. Absent / 0 means a single sheet. */
+  pageIndex?: number;
+  totalPages?: number;
+}
+
 export type AnnotationKind = "text" | "note" | "arrow";
 
 export interface Annotation {
@@ -78,8 +113,11 @@ export interface DrawingPage {
    */
   titleBlock: Partial<ProjectMeta>;
   diagram?: DiagramView;
+  sld?: SldView;
   analysis?: AnalysisSnapshot;
   bom?: BomConfig;
+  elecSchedule?: ElecScheduleSnapshot;
+  titlePage?: TitlePageContent;
   annotations: Annotation[];
   /** Per-page colour overrides for individual diagram elements, keyed by
    *  node.id or edge.id. Anything not present falls back to the default print

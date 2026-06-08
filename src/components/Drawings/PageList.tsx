@@ -5,10 +5,13 @@ import {
   ClipboardList,
   Copy,
   FileText,
+  Heading,
+  ListChecks,
   Plus,
   Sigma,
   Trash2,
   Sticker,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 
@@ -38,6 +41,21 @@ export function PageList() {
       type: "blank",
       titleBlock: {},
       annotations: [],
+    });
+    setAddOpen(false);
+  }
+
+  function addTitlePage() {
+    addPage({
+      id: newPageId(),
+      title: "Title page",
+      type: "title",
+      titleBlock: {},
+      annotations: [],
+      titlePage: {
+        heading: "Project Title",
+        subheading: "",
+      },
     });
     setAddOpen(false);
   }
@@ -102,6 +120,7 @@ export function PageList() {
           </button>
           {addOpen && (
             <div className="absolute right-0 top-full z-20 mt-1 flex w-44 flex-col rounded-md border border-zinc-700 bg-[var(--color-panel-2)] shadow-lg">
+              <AddOption icon={Heading} label="Title / section page" onClick={addTitlePage} />
               <AddOption icon={FileText} label="Full diagram" onClick={addFullDiagram} />
               <AddOption icon={ClipboardList} label="Bill of materials" onClick={addBom} />
               <AddOption icon={Sticker} label="Blank annotation page" onClick={addBlank} />
@@ -202,11 +221,17 @@ function PageRow({
   const TypeIcon =
     page.type === "diagram"
       ? FileText
-      : page.type === "analysis"
-        ? Sigma
-        : page.type === "bom"
-          ? ClipboardList
-          : Sticker;
+      : page.type === "sld"
+        ? Zap
+        : page.type === "analysis"
+          ? Sigma
+          : page.type === "bom"
+            ? ClipboardList
+            : page.type === "elec-schedule"
+              ? ListChecks
+              : page.type === "title"
+                ? Heading
+                : Sticker;
   return (
     <div
       className={cn(

@@ -1,5 +1,6 @@
 import { getSymbol } from "@/symbols/registry";
 import type { DiagramEdge, DiagramNode } from "@/store/diagramStore";
+import { includeInReports } from "@/io/reporting";
 import {
   PIPE_MATERIAL_OPTIONS,
   PIPE_NOMINAL_OPTIONS,
@@ -72,6 +73,7 @@ function buildEquipmentRows(nodes: DiagramNode[]): EquipmentBomRow[] {
   const byKey = new Map<string, EquipmentBomRow>();
   let itemNo = 0;
   for (const n of nodes) {
+    if (!includeInReports(n.data)) continue;
     const symbol = getSymbol(n.data.symbolType);
     if (!symbol) continue;
     // Skip pure visual "connector" symbols (tap points, off-page connectors…)
@@ -128,6 +130,7 @@ function buildPipeRows(edges: DiagramEdge[]): PipeBomRow[] {
   const byKey = new Map<string, PipeBomRow>();
   let itemNo = 0;
   for (const e of edges) {
+    if (!includeInReports(e.data)) continue;
     const lineType = e.data?.lineType ?? "process";
     if (lineType !== "process") continue; // utility / electrical aren't pipe BOM
     const pipe = e.data?.pipe ?? {};
@@ -159,6 +162,7 @@ function buildFittingRows(edges: DiagramEdge[]): FittingBomRow[] {
   const byKey = new Map<string, FittingBomRow>();
   let itemNo = 0;
   for (const e of edges) {
+    if (!includeInReports(e.data)) continue;
     const lineType = e.data?.lineType ?? "process";
     if (lineType !== "process") continue;
     const pipe = e.data?.pipe ?? {};

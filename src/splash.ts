@@ -131,7 +131,7 @@ function replayRustEntries(splash: SplashApi, report: StartupReport): void {
   splash.info(`Rust runtime online — ${report.platform}`);
 
   for (const entry of report.entries) {
-    if (entry.message.startsWith("Ash's P&ID Playground v")) continue;
+    if (entry.message.startsWith("Ash's MEP Playground v")) continue;
 
     const status: SplashStatus = entry.status;
     const text = entry.message;

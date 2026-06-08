@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { useDiagramStore } from "@/store/diagramStore";
+import { useElectricalStore } from "@/electrical/store/electricalStore";
 import { useDrawingsStore } from "@/store/drawingsStore";
 import { useProjectStore } from "@/store/projectStore";
 
@@ -36,9 +37,20 @@ export function useDirtyTracker() {
         useProjectStore.getState().markDirty();
       }
     });
+    let prevElec = {
+      nodes: useElectricalStore.getState().nodes,
+      edges: useElectricalStore.getState().edges,
+    };
+    const unsubElec = useElectricalStore.subscribe((state) => {
+      if (state.nodes !== prevElec.nodes || state.edges !== prevElec.edges) {
+        prevElec = { nodes: state.nodes, edges: state.edges };
+        useProjectStore.getState().markDirty();
+      }
+    });
     return () => {
       unsubDiagram();
       unsubDrawings();
+      unsubElec();
     };
   }, []);
 }

@@ -25,6 +25,62 @@ export interface DrawingsPdfInput {
   companyLogo: string | null;
 }
 
+/**
+ * svg2pdf converts a nested SVG `<image>` (an SVG logo) by re-drawing its text
+ * with its own Times fallback — which is why an SVG logo comes out in a serif
+ * font that doesn't match the on-screen preview. Rasterising the logo to a PNG
+ * with the browser first means the PDF embeds the exact pixels the app shows.
+ * Raster logos (PNG/JPG) are passed through untouched.
+ */
+async function rasterizeLogoIfSvg(dataUrl: string | null): Promise<string | null> {
+  if (!dataUrl || !dataUrl.startsWith("data:image/svg")) return dataUrl;
+  try {
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error("logo failed to load"));
+      img.src = dataUrl;
+    });
+    let w = img.naturalWidth;
+    let h = img.naturalHeight;
+    if (!w || !h) {
+      const size = parseSvgIntrinsicSize(dataUrl);
+      w = size.w;
+      h = size.h;
+    }
+    // Render crisp enough for print: aim for ~1000px on the long edge.
+    const scale = Math.max(1, Math.ceil(1000 / Math.max(w, h, 1)));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(w * scale));
+    canvas.height = Math.max(1, Math.round(h * scale));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return dataUrl;
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/png");
+  } catch {
+    return dataUrl;
+  }
+}
+
+function parseSvgIntrinsicSize(dataUrl: string): { w: number; h: number } {
+  try {
+    const comma = dataUrl.indexOf(",");
+    const header = dataUrl.slice(0, comma);
+    const body = dataUrl.slice(comma + 1);
+    const svg = header.includes("base64") ? atob(body) : decodeURIComponent(body);
+    const vb = svg.match(
+      /viewBox\s*=\s*["']\s*[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+([\d.]+)/i,
+    );
+    if (vb) return { w: parseFloat(vb[1]), h: parseFloat(vb[2]) };
+    const wM = svg.match(/\bwidth\s*=\s*["']([\d.]+)/i);
+    const hM = svg.match(/\bheight\s*=\s*["']([\d.]+)/i);
+    if (wM && hM) return { w: parseFloat(wM[1]), h: parseFloat(hM[1]) };
+  } catch {
+    /* fall through to default */
+  }
+  return { w: 600, h: 300 };
+}
+
 async function buildDrawingsPdf(input: DrawingsPdfInput): Promise<ArrayBuffer> {
   const doc = new jsPDF({
     orientation: "landscape",
@@ -32,6 +88,9 @@ async function buildDrawingsPdf(input: DrawingsPdfInput): Promise<ArrayBuffer> {
     format: "a3",
   });
   await ensureInterFont(doc);
+
+  // Bake an SVG logo down to a bitmap so it matches the on-screen preview.
+  const logo = await rasterizeLogoIfSvg(input.companyLogo);
 
   const stage = document.createElement("div");
   stage.style.position = "fixed";
@@ -46,7 +105,7 @@ async function buildDrawingsPdf(input: DrawingsPdfInput): Promise<ArrayBuffer> {
         meta: input.meta,
         liveNodes: input.liveNodes,
         liveEdges: input.liveEdges,
-        companyLogo: input.companyLogo,
+        companyLogo: logo,
         pageNumber: i + 1,
         totalPages: input.pages.length,
       });

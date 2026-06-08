@@ -6,6 +6,7 @@ import { LINE_STYLES } from "@/symbols/lines/lineStyles";
 import { extractPath, NoPathError } from "@/engine/path";
 import { toEngineGraph } from "@/engine/adapter";
 import { diagramBounds, portWorldPosition } from "@/io/geometry";
+import { resolveTagSide, tagLocalCoords } from "@/io/tagPlacement";
 import type { DiagramEdge, DiagramNode } from "@/store/diagramStore";
 
 interface RoutePreviewProps {
@@ -209,7 +210,7 @@ function PreviewEdge({
     targetY: t.y,
     sourcePosition: s.position,
     targetPosition: t.position,
-    borderRadius: 6,
+    borderRadius: 18,
   });
 
   const lineType = edge.data?.lineType ?? "process";
@@ -267,6 +268,8 @@ function PreviewNode({
   const opacity = hasPath ? (onPath ? 1 : 0.25) : 0.7;
   const tag = node.data.tag ?? node.data.label ?? symbol.defaultLabel ?? "";
   const labelColor = isEndpoint ? "#fbbf24" : "#a1a1aa";
+  const tagSide = resolveTagSide(symbol.ports, rotation);
+  const tagPos = tagLocalCoords(tagSide, size.width, size.height, 8, 11);
 
   return (
     <g
@@ -285,9 +288,9 @@ function PreviewNode({
       </g>
       {tag && (
         <text
-          x={size.width / 2}
-          y={size.height + 12}
-          textAnchor="middle"
+          x={tagPos.x}
+          y={tagPos.y}
+          textAnchor={tagPos.anchor}
           fontSize={11}
           fontFamily="Inter, Helvetica, Arial, sans-serif"
           fontWeight={isEndpoint ? 600 : 400}

@@ -56,7 +56,7 @@ pub fn run() {
             log.push(
                 StartupEntryStatus::Info,
                 format!(
-                    "Ash's P&ID Playground v{} on {}",
+                    "Ash's MEP Playground v{} on {}",
                     env!("CARGO_PKG_VERSION"),
                     platform_name()
                 ),

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
 import { loadRecent, type RecentFile } from "@/io/recentFiles";
+import { HoverTooltipWrap } from "@/components/shared/HoverTooltip";
 import { cn } from "@/lib/utils";
 
 interface RecentMenuProps {
@@ -29,17 +30,25 @@ export function RecentMenu({ onOpen }: RecentMenuProps) {
 
   return (
     <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "flex h-8 items-center gap-1 rounded px-2 text-xs text-zinc-400 transition",
-          "hover:bg-zinc-800 hover:text-zinc-100",
-        )}
+      <HoverTooltipWrap
         title="Recent files"
+        description="Open a project from your recently used .pid files. The list updates whenever you save or open a project."
+        placement="below"
       >
-        Recent <ChevronDown size={12} />
-      </button>
+        {(handlers) => (
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            {...handlers}
+            className={cn(
+              "flex h-8 items-center gap-1 rounded px-2 text-xs text-zinc-400 transition",
+              "hover:bg-zinc-800 hover:text-zinc-100",
+            )}
+          >
+            Recent <ChevronDown size={12} />
+          </button>
+        )}
+      </HoverTooltipWrap>
       {open && (
         <div className="absolute right-0 top-9 z-20 w-72 rounded-md border border-zinc-800 bg-[var(--color-panel)] py-1 shadow-xl">
           {recent.length === 0 && (

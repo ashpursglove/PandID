@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Search } from "lucide-react";
 
 import { useUIStore } from "@/store/uiStore";
@@ -6,6 +6,7 @@ import { useDiagramStore } from "@/store/diagramStore";
 import {
   CATEGORY_LABELS,
   CATEGORY_ORDER,
+  getSymbolHelp,
   groupedSubcategories,
 } from "@/symbols/registry";
 import { LINE_STYLES, LINE_TYPE_ORDER } from "@/symbols/lines/lineStyles";
@@ -202,24 +203,69 @@ function Subgroup({
 
 function PaletteItem({ symbol }: { symbol: SymbolDef }) {
   const { Icon } = symbol;
+  const [tip, setTip] = useState<{ x: number; y: number; left: boolean } | null>(
+    null,
+  );
+  const hideTimer = useRef<number | null>(null);
+
+  const showTip = (e: React.MouseEvent<HTMLButtonElement>) => {
+    if (hideTimer.current) {
+      window.clearTimeout(hideTimer.current);
+      hideTimer.current = null;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const tipWidth = 256;
+    const placeLeft = rect.right + tipWidth + 16 > window.innerWidth;
+    setTip({
+      x: placeLeft ? rect.left - 8 : rect.right + 8,
+      y: rect.top,
+      left: placeLeft,
+    });
+  };
+
+  const hideTip = () => {
+    hideTimer.current = window.setTimeout(() => setTip(null), 40);
+  };
+
   return (
-    <button
-      type="button"
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.setData(DRAG_DATA_TYPE, symbol.type);
-        e.dataTransfer.effectAllowed = "move";
-      }}
-      title={symbol.label}
-      className="group flex flex-col items-center gap-1 rounded border border-zinc-800 bg-[var(--color-panel-2)] p-1.5 transition hover:border-zinc-600 hover:bg-zinc-800"
-    >
-      <span className="flex h-9 w-full items-center justify-center text-zinc-200">
-        <Icon width={36} height={36} />
-      </span>
-      <span className="line-clamp-2 text-center text-[9.5px] leading-tight text-zinc-400 group-hover:text-zinc-200">
-        {symbol.label}
-      </span>
-    </button>
+    <>
+      <button
+        type="button"
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData(DRAG_DATA_TYPE, symbol.type);
+          e.dataTransfer.effectAllowed = "move";
+          setTip(null);
+        }}
+        onMouseEnter={showTip}
+        onMouseLeave={hideTip}
+        className="group flex flex-col items-center gap-1 rounded border border-zinc-800 bg-[var(--color-panel-2)] p-1.5 transition hover:border-zinc-600 hover:bg-zinc-800"
+      >
+        <span className="flex h-9 w-full items-center justify-center text-zinc-200">
+          <Icon width={36} height={36} />
+        </span>
+        <span className="line-clamp-2 text-center text-[9.5px] leading-tight text-zinc-400 group-hover:text-zinc-200">
+          {symbol.label}
+        </span>
+      </button>
+
+      {tip && (
+        <div
+          role="tooltip"
+          className="pointer-events-none fixed z-50 w-64 rounded-md border border-zinc-700 bg-zinc-900/95 p-2.5 text-left shadow-xl backdrop-blur"
+          style={{
+            top: tip.y,
+            left: tip.left ? undefined : tip.x,
+            right: tip.left ? window.innerWidth - tip.x : undefined,
+          }}
+        >
+          <p className="text-xs font-semibold text-zinc-100">{symbol.label}</p>
+          <p className="mt-1 text-[11px] leading-snug text-zinc-300">
+            {getSymbolHelp(symbol)}
+          </p>
+        </div>
+      )}
+    </>
   );
 }
 

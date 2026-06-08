@@ -2,7 +2,11 @@ import { create } from "zustand";
 
 import type { LineType } from "@/types/diagram";
 
-export type AppTab = "editor" | "analysis" | "drawings";
+export type AppTab =
+  | "editor"
+  | "analysis"
+  | "drawings"
+  | "electrical";
 
 export type AnalysisMode = "forward" | "inverse";
 

@@ -12,8 +12,13 @@
  * The TTF is a variable font (opsz + wght axes) so a single file gives us
  * regular AND bold without shipping two assets. Both styles are aliased to
  * the same file — jsPDF doesn't drive variable axes itself, but svg2pdf
- * still picks `bold` for `font-weight >= 600`, and the renderer just uses
- * the embedded glyphs as-is.
+ * picks the `bold` style for `font-weight="bold"`, and the renderer just
+ * uses the embedded glyphs as-is.
+ *
+ * IMPORTANT: the SVG must use `font-weight="bold"` (not a numeric weight like
+ * `600`). svg2pdf turns a numeric weight into a jsPDF style string such as
+ * `"600normal"`, which jsPDF can't resolve — it then silently falls back to
+ * Times (serif), which is why bold text used to come out in the wrong font.
  */
 
 import type { jsPDF } from "jspdf";
@@ -57,8 +62,8 @@ export async function ensureInterFont(doc: jsPDF): Promise<void> {
   const base64 = await loadInterBase64();
   doc.addFileToVFS(FONT_FILE, base64);
   doc.addFont(FONT_FILE, FONT_NAME, "normal");
-  // Alias bold to the same variable file. svg2pdf still requests "bold"
-  // for elements with font-weight >= 600 — without this alias it would
+  // Alias bold to the same variable file. svg2pdf requests "bold" for
+  // elements with font-weight="bold" — without this alias it would
   // silently fall back to Helvetica-Bold and break visual consistency.
   doc.addFont(FONT_FILE, FONT_NAME, "bold");
   doc.setFont(FONT_NAME, "normal");

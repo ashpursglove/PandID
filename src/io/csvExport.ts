@@ -5,6 +5,7 @@
 
 import { getSymbol } from "@/symbols/registry";
 import type { DiagramNode } from "@/store/diagramStore";
+import { includeInReports } from "@/io/reporting";
 
 import { isTauriRuntime } from "./runtime";
 
@@ -13,6 +14,7 @@ const COLUMNS = ["Tag", "Type", "Category", "Symbol", "X", "Y", "Notes"];
 export function buildEquipmentCsv(nodes: DiagramNode[]): string {
   const rows = [COLUMNS.join(",")];
   for (const n of nodes) {
+    if (!includeInReports(n.data)) continue;
     const sym = getSymbol(n.data.symbolType);
     if (!sym) continue;
     const tag = n.data.tag ?? n.data.label ?? "";

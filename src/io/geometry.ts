@@ -6,6 +6,7 @@
 import { Position } from "@xyflow/react";
 
 import { getSymbol } from "@/symbols/registry";
+import { zoneBoxSize } from "@/components/shared/zone";
 import type { DiagramNode } from "@/store/diagramStore";
 import type { PortSide } from "@/types/diagram";
 
@@ -143,8 +144,13 @@ export function diagramBounds(nodes: DiagramNode[]): {
   let maxY = -Infinity;
   for (const node of nodes) {
     const sym = getSymbol(node.data.symbolType);
-    const w = sym?.size.width ?? 64;
-    const h = sym?.size.height ?? 64;
+    // Zones (and any sized node without a registry entry) fall back to their
+    // React-Flow-measured width/height — matching renderZoneWorld — so an area
+    // box around the diagram isn't clipped out of, or drift within, the
+    // auto-fit bounds.
+    const zoneSize = zoneBoxSize(node, 64, 64);
+    const w = sym?.size.width ?? zoneSize.w;
+    const h = sym?.size.height ?? zoneSize.h;
     if (node.position.x < minX) minX = node.position.x;
     if (node.position.y < minY) minY = node.position.y;
     if (node.position.x + w > maxX) maxX = node.position.x + w;

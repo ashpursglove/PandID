@@ -63,7 +63,7 @@ pub fn ensure_pid_association() -> std::io::Result<FileAssocStatus> {
     // The ProgID is the long-lived identifier Windows uses to look up icons
     // and Open verbs for the .pid extension. Keep it stable across versions.
     const PROG_ID: &str = "PandIDProject";
-    const PROG_FRIENDLY: &str = "Ash's P&ID Playground project";
+    const PROG_FRIENDLY: &str = "Ash's MEP Playground project";
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
 
@@ -107,7 +107,7 @@ pub fn ensure_pid_association() -> std::io::Result<FileAssocStatus> {
     // --- Application registration so "Open with" shows our friendly name.
     let (app_key, _) =
         hkcu.create_subkey(r"Software\Classes\Applications\pandid.exe")?;
-    app_key.set_value("FriendlyAppName", &"Ash's P&ID Playground".to_string())?;
+    app_key.set_value("FriendlyAppName", &"Ash's MEP Playground".to_string())?;
     let (app_icon_key, _) =
         hkcu.create_subkey(r"Software\Classes\Applications\pandid.exe\DefaultIcon")?;
     app_icon_key.set_value("", &format!("\"{}\",0", exe_str))?;

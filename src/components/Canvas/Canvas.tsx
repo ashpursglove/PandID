@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -8,6 +8,7 @@ import {
   MiniMap,
   useReactFlow,
   type OnSelectionChangeParams,
+  type Node as RFNode,
   type NodeTypes,
   type EdgeTypes,
 } from "@xyflow/react";
@@ -23,6 +24,15 @@ import { getSymbol } from "@/symbols/registry";
 import { SymbolNode } from "@/components/Canvas/SymbolNode";
 import { PipeEdge } from "@/components/Canvas/PipeEdge";
 import { SendCurrentViewButton } from "@/components/Canvas/SendCurrentViewButton";
+import { ZoneNode } from "@/components/shared/ZoneNode";
+import { AddZoneButton } from "@/components/shared/AddZoneButton";
+import {
+  BOLT_SNAP_RADIUS,
+  findSnap,
+  type SnapCandidate,
+  type SnapNode,
+} from "@/components/shared/boltSnap";
+import { BoltSnapIndicator } from "@/components/shared/BoltSnapIndicator";
 import { DRAG_DATA_TYPE } from "@/components/Palette/dragMime";
 import { nextTag } from "@/components/Canvas/autoTag";
 import {
@@ -37,12 +47,28 @@ interface CanvasProps {
   className?: string;
 }
 
-const nodeTypes: NodeTypes = { symbol: SymbolNode };
+const nodeTypes: NodeTypes = { symbol: SymbolNode, zone: ZoneNode };
 const edgeTypes: EdgeTypes = { pipe: PipeEdge };
+
+/** Resolve a node's ports + size into the geometry the snapper needs. */
+function pidSnapNode(n: DiagramNode): SnapNode | null {
+  if (n.type !== "symbol") return null;
+  const symbol = getSymbol(n.data.symbolType);
+  if (!symbol) return null;
+  return {
+    id: n.id,
+    position: n.position,
+    rotation: (n.data.rotation as number) ?? 0,
+    ports: symbol.ports,
+    size: symbol.size,
+  };
+}
 
 export function Canvas({ className }: CanvasProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
+
+  const [snap, setSnap] = useState<SnapCandidate | null>(null);
 
   const {
     nodes,
@@ -53,6 +79,7 @@ export function Canvas({ className }: CanvasProps) {
     onSelectionChange,
     addNode,
     applyChanges,
+    boltNodeTo,
   } = useDiagramStore(
     useShallow((s) => ({
       nodes: s.nodes,
@@ -63,7 +90,43 @@ export function Canvas({ className }: CanvasProps) {
       onSelectionChange: s.onSelectionChange,
       addNode: s.addNode,
       applyChanges: s.applyChanges,
+      boltNodeTo: s.boltNodeTo,
     })),
+  );
+
+  // While a component is dragged, look for the nearest port on another node it
+  // can bolt onto (no pipe). Shows a highlight ring; commits on drop.
+  const computeSnap = useCallback((dragged: RFNode): SnapCandidate | null => {
+    const dn = pidSnapNode(dragged as DiagramNode);
+    if (!dn) return null;
+    const others = useDiagramStore
+      .getState()
+      .nodes.map(pidSnapNode)
+      .filter((x): x is SnapNode => x !== null && x.id !== dragged.id);
+    return findSnap(dn, others, BOLT_SNAP_RADIUS);
+  }, []);
+
+  const onNodeDrag = useCallback(
+    (_: unknown, node: RFNode) => setSnap(computeSnap(node)),
+    [computeSnap],
+  );
+
+  const onNodeDragStop = useCallback(
+    (_: unknown, node: RFNode) => {
+      const cand = computeSnap(node);
+      setSnap(null);
+      if (cand) {
+        boltNodeTo(
+          node.id,
+          cand.dx,
+          cand.dy,
+          cand.fromHandle,
+          cand.toNodeId,
+          cand.toHandle,
+        );
+      }
+    },
+    [computeSnap, boltNodeTo],
   );
 
   const handleSelection = useCallback(
@@ -171,15 +234,20 @@ export function Canvas({ className }: CanvasProps) {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onNodeDrag={onNodeDrag}
+        onNodeDragStop={onNodeDragStop}
         onSelectionChange={handleSelection}
         fitView
+        minZoom={0.1}
+        maxZoom={4}
         snapToGrid
-        snapGrid={[10, 10]}
+        snapGrid={[5, 5]}
         colorMode="dark"
         proOptions={{ hideAttribution: true }}
         deleteKeyCode={["Backspace", "Delete"]}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+        <BoltSnapIndicator candidate={snap} />
         <Controls position="bottom-left" />
         <MiniMap
           position="bottom-right"
@@ -189,6 +257,7 @@ export function Canvas({ className }: CanvasProps) {
           nodeColor={() => "#52525b"}
         />
       </ReactFlow>
+      <AddZoneButton onAdd={(node) => addNode(node as unknown as DiagramNode)} />
       <SendCurrentViewButton />
     </div>
   );

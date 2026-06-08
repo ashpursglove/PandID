@@ -1,11 +1,13 @@
 import { useEffect } from "react";
 import { useStore } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 import {
   FileText,
   FolderOpen,
   Save,
   FilePlus2,
   FileDown,
+  FileInput,
   Sheet,
   Undo2,
   Redo2,
@@ -14,16 +16,22 @@ import {
 } from "lucide-react";
 
 import { useDiagramStore, useDiagramHistory } from "@/store/diagramStore";
+import {
+  useElectricalStore,
+  useElectricalHistory,
+} from "@/electrical/store/electricalStore";
 import { useUIStore, type AppTab } from "@/store/uiStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useProjectIO } from "@/io/useProjectIO";
+import { HoverTooltipWrap } from "@/components/shared/HoverTooltip";
 import { cn } from "@/lib/utils";
 
 import { RecentMenu } from "./RecentMenu";
 
 const TABS: { id: AppTab; label: string }[] = [
-  { id: "editor", label: "Editor" },
-  { id: "analysis", label: "Analysis" },
+  { id: "editor", label: "P&ID Editor" },
+  { id: "analysis", label: "P&ID Analysis" },
+  { id: "electrical", label: "Electrical Editor" },
   { id: "drawings", label: "Drawings" },
 ];
 
@@ -33,11 +41,31 @@ export function Toolbar() {
   const meta = useProjectStore((s) => s.meta);
   const filePath = useProjectStore((s) => s.filePath);
   const isDirty = useProjectStore((s) => s.isDirty);
-  const removeSelected = useDiagramStore((s) => s.removeSelected);
-  const rotateSelected = useDiagramStore((s) => s.rotateSelected);
-  const copySelection = useDiagramStore((s) => s.copySelection);
-  const cutSelection = useDiagramStore((s) => s.cutSelection);
-  const pasteClipboard = useDiagramStore((s) => s.pasteClipboard);
+  // Edit actions are discipline-aware: when the Electrical tab is active they
+  // target the SLD store, otherwise the P&ID diagram store. We read both sets
+  // unconditionally (hooks rules) and pick based on the tab.
+  const isElectrical = tab === "electrical";
+
+  const pidActions = useDiagramStore(
+    useShallow((s) => ({
+      removeSelected: s.removeSelected,
+      rotateSelected: s.rotateSelected,
+      copySelection: s.copySelection,
+      cutSelection: s.cutSelection,
+      pasteClipboard: s.pasteClipboard,
+    })),
+  );
+  const elecActions = useElectricalStore(
+    useShallow((s) => ({
+      removeSelected: s.removeSelected,
+      rotateSelected: s.rotateSelected,
+      copySelection: s.copySelection,
+      cutSelection: s.cutSelection,
+      pasteClipboard: s.pasteClipboard,
+    })),
+  );
+  const { removeSelected, rotateSelected, copySelection, cutSelection, pasteClipboard } =
+    isElectrical ? elecActions : pidActions;
 
   // The label next to the app name should reflect what's actually on disk so
   // saving / loading is visibly reflected. The bare meta.title is a poor
@@ -45,13 +73,16 @@ export function Toolbar() {
   // basename (without the .pid extension); fall back to the project title.
   const projectLabel = projectDisplayName(filePath, meta.title);
 
-  const temporal = useStore(useDiagramHistory());
+  const pidTemporal = useStore(useDiagramHistory());
+  const elecTemporal = useStore(useElectricalHistory());
+  const temporal = isElectrical ? elecTemporal : pidTemporal;
   const canUndo = temporal.pastStates.length > 0;
   const canRedo = temporal.futureStates.length > 0;
 
   const {
     newProject,
     openProject,
+    importProject,
     save,
     saveAs,
     openRecent,
@@ -131,7 +162,7 @@ export function Toolbar() {
     <header className="flex h-12 shrink-0 items-center justify-between border-b border-zinc-800 bg-[var(--color-panel)] px-3">
       <div className="flex items-center gap-2">
         <span className="text-sm font-semibold tracking-tight text-zinc-100">
-          Ash&rsquo;s P&amp;ID Playground
+          Ash&rsquo;s MEP Playground
         </span>
         <span className="text-xs text-zinc-500" title={filePath ?? meta.title}>
           {projectLabel}
@@ -158,42 +189,76 @@ export function Toolbar() {
       </nav>
 
       <div className="flex items-center gap-1">
-        <ToolbarButton icon={FileText} title="New project (Ctrl+N)" onClick={newProject} />
+        <ToolbarButton
+          icon={FileText}
+          label="New project"
+          shortcut="Ctrl+N"
+          description="Start a blank project. Clears the P&ID, electrical SLD, and drawings unless you save first."
+          onClick={newProject}
+        />
         <ToolbarButton
           icon={FolderOpen}
-          title="Open project (Ctrl+O)"
+          label="Open project"
+          shortcut="Ctrl+O"
+          description="Open a saved .pid project file. Replaces everything in the current document."
           onClick={openProject}
         />
-        <ToolbarButton icon={Save} title="Save (Ctrl+S)" onClick={save} />
+        <ToolbarButton
+          icon={Save}
+          label="Save"
+          shortcut="Ctrl+S"
+          description="Save changes to the current project file on disk."
+          onClick={save}
+        />
         <ToolbarButton
           icon={FilePlus2}
-          title="Save As… (Ctrl+Shift+S)"
+          label="Save As"
+          shortcut="Ctrl+Shift+S"
+          description="Save the project under a new file name or folder."
           onClick={saveAs}
         />
+        <ToolbarButton
+          icon={FileInput}
+          label="Import"
+          description="Merge another project's P&ID and SLD into this one. Imported parts are placed above existing content so you can drag them into place."
+          onClick={importProject}
+        />
         <RecentMenu onOpen={openRecent} />
-        <ToolbarButton icon={FileDown} title="Export PDF" onClick={exportPdf} />
+        <ToolbarButton
+          icon={FileDown}
+          label="Export PDF"
+          description="Export the drawing package as PDF. Uses Drawings tab pages when you have set them up; otherwise exports the P&ID."
+          onClick={exportPdf}
+        />
         <ToolbarButton
           icon={Sheet}
-          title="Export equipment list CSV"
+          label="Export equipment CSV"
+          description="Export the P&ID equipment list as a spreadsheet-friendly CSV file."
           onClick={exportCsv}
         />
         <Divider />
         <ToolbarButton
           icon={Undo2}
-          title="Undo (Ctrl+Z)"
+          label="Undo"
+          shortcut="Ctrl+Z"
+          description="Undo the last change on the active editor (P&ID or electrical, depending on which tab is open)."
           disabled={!canUndo}
           onClick={() => temporal.undo()}
         />
         <ToolbarButton
           icon={Redo2}
-          title="Redo (Ctrl+Y)"
+          label="Redo"
+          shortcut="Ctrl+Y"
+          description="Redo the last undone change on the active editor."
           disabled={!canRedo}
           onClick={() => temporal.redo()}
         />
         <Divider />
         <ToolbarButton
           icon={Trash2}
-          title="Delete selected (Del)"
+          label="Delete"
+          shortcut="Del"
+          description="Remove the selected components, pipes, or cables from the diagram."
           onClick={removeSelected}
         />
       </div>
@@ -207,26 +272,44 @@ function Divider() {
 
 interface ToolbarButtonProps {
   icon: LucideIcon;
-  title: string;
+  label: string;
+  shortcut?: string;
+  description: string;
   onClick?: () => void;
   disabled?: boolean;
 }
 
-function ToolbarButton({ icon: Icon, title, onClick, disabled }: ToolbarButtonProps) {
+function ToolbarButton({
+  icon: Icon,
+  label,
+  shortcut,
+  description,
+  onClick,
+  disabled,
+}: ToolbarButtonProps) {
   return (
-    <button
-      type="button"
-      title={title}
-      onClick={onClick}
-      disabled={disabled}
-      className={cn(
-        "flex h-8 w-8 items-center justify-center rounded text-zinc-400 transition",
-        "hover:bg-zinc-800 hover:text-zinc-100",
-        "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
-      )}
+    <HoverTooltipWrap
+      title={label}
+      subtitle={shortcut}
+      description={description}
+      placement="below"
     >
-      <Icon size={16} strokeWidth={1.75} />
-    </button>
+      {(handlers) => (
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={disabled}
+          {...handlers}
+          className={cn(
+            "flex h-8 w-8 items-center justify-center rounded text-zinc-400 transition",
+            "hover:bg-zinc-800 hover:text-zinc-100",
+            "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
+          )}
+        >
+          <Icon size={16} strokeWidth={1.75} />
+        </button>
+      )}
+    </HoverTooltipWrap>
   );
 }
 

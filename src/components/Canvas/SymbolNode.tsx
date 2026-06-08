@@ -8,6 +8,7 @@ import {
 
 import { getSymbol } from "@/symbols/registry";
 import { rotatePort } from "@/io/geometry";
+import { resolveTagSide, tagEditorStyle } from "@/io/tagPlacement";
 import type { PortSide } from "@/types/diagram";
 import type { DiagramNode } from "@/store/diagramStore";
 import { cn } from "@/lib/utils";
@@ -66,6 +67,7 @@ export const SymbolNode = memo(function SymbolNode({
 
   const { Icon, size, ports } = symbol;
   const label = data.tag ?? data.label ?? symbol.defaultLabel ?? "";
+  const tagSide = resolveTagSide(ports, rotation);
 
   return (
     <div
@@ -120,7 +122,10 @@ export const SymbolNode = memo(function SymbolNode({
       })}
 
       {label && (
-        <span className="pointer-events-none absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[11px] font-medium text-zinc-300">
+        <span
+          className="text-zinc-300"
+          style={tagEditorStyle(tagSide)}
+        >
           {label}
         </span>
       )}

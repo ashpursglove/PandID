@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 
 import { useDiagramStore } from "@/store/diagramStore";
+import { useElectricalStore } from "@/electrical/store/electricalStore";
 import { useProjectStore } from "@/store/projectStore";
 import { useDrawingsStore } from "@/store/drawingsStore";
 import { pushRecent } from "@/io/recentFiles";
@@ -29,7 +30,9 @@ export function useProjectIO() {
     diagram.clear();
     project.resetToDefaults();
     useDrawingsStore.getState().clear();
+    useElectricalStore.getState().clear();
     useDiagramStore.temporal.getState().clear();
+    useElectricalStore.temporal.getState().clear();
   }, []);
 
   const openProject = useCallback(async () => {
@@ -60,10 +63,49 @@ export function useProjectIO() {
         filePath: picked.path,
       });
       useDrawingsStore.getState().replace(parsed.drawings ?? [], parsed.companyLogo ?? null);
+      useElectricalStore
+        .getState()
+        .replaceAll(parsed.electrical?.nodes ?? [], parsed.electrical?.edges ?? []);
       useDiagramStore.temporal.getState().clear();
+      useElectricalStore.temporal.getState().clear();
       pushRecent(picked.path);
     } catch (e) {
       alert(`Failed to load project: ${(e as Error).message}`);
+    }
+  }, []);
+
+  /**
+   * Import another save file's P&ID and SLD *into* the current document. Unlike
+   * Open (which replaces everything), this merges: the imported parts are
+   * re-ID'd, floated above the existing content with a gap, and pre-selected so
+   * they can be dragged into place. Project meta / drawings are left untouched.
+   */
+  const importProject = useCallback(async () => {
+    let picked;
+    try {
+      picked = await pickAndReadFile();
+    } catch (e) {
+      alert(`Could not import file: ${(e as Error).message}`);
+      return;
+    }
+    if (!picked) return;
+
+    try {
+      const parsed = parseProjectJson(picked.content);
+      const pidNodes = parsed.diagram?.nodes ?? [];
+      const pidEdges = parsed.diagram?.edges ?? [];
+      const elecNodes = parsed.electrical?.nodes ?? [];
+      const elecEdges = parsed.electrical?.edges ?? [];
+
+      if (pidNodes.length === 0 && elecNodes.length === 0) {
+        alert("That file has no P&ID or SLD parts to import.");
+        return;
+      }
+
+      useDiagramStore.getState().importGraph(pidNodes, pidEdges);
+      useElectricalStore.getState().importGraph(elecNodes, elecEdges);
+    } catch (e) {
+      alert(`Failed to import project: ${(e as Error).message}`);
     }
   }, []);
 
@@ -71,6 +113,8 @@ export function useProjectIO() {
     const { meta, fluids, filePath: existing } = useProjectStore.getState();
     const { nodes, edges } = useDiagramStore.getState();
     const { pages: drawings, companyLogo } = useDrawingsStore.getState();
+    const { nodes: electricalNodes, edges: electricalEdges } =
+      useElectricalStore.getState();
     const json = makeProjectJson({
       meta,
       fluids,
@@ -78,6 +122,8 @@ export function useProjectIO() {
       edges,
       drawings,
       companyLogo,
+      electricalNodes,
+      electricalEdges,
     });
     const path = await pickAndWriteFile(existing, json);
     if (!path) return;
@@ -90,6 +136,8 @@ export function useProjectIO() {
     const { meta, fluids, filePath } = useProjectStore.getState();
     const { nodes, edges } = useDiagramStore.getState();
     const { pages: drawings, companyLogo } = useDrawingsStore.getState();
+    const { nodes: electricalNodes, edges: electricalEdges } =
+      useElectricalStore.getState();
     if (!filePath) {
       await saveAs();
       return;
@@ -101,6 +149,8 @@ export function useProjectIO() {
       edges,
       drawings,
       companyLogo,
+      electricalNodes,
+      electricalEdges,
     });
     try {
       await writeFileAt(filePath, json);
@@ -134,7 +184,11 @@ export function useProjectIO() {
       useDrawingsStore
         .getState()
         .replace(parsed.drawings ?? [], parsed.companyLogo ?? null);
+      useElectricalStore
+        .getState()
+        .replaceAll(parsed.electrical?.nodes ?? [], parsed.electrical?.edges ?? []);
       useDiagramStore.temporal.getState().clear();
+      useElectricalStore.temporal.getState().clear();
       pushRecent(path);
     } catch (e) {
       alert(`Failed to open recent file: ${(e as Error).message}`);
@@ -190,6 +244,7 @@ export function useProjectIO() {
   return {
     newProject,
     openProject,
+    importProject,
     save,
     saveAs,
     openRecent,

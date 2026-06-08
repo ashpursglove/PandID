@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <!--
-    App icon for Ash's P&amp;ID Playground.
+    App icon for Ash's MEP Playground.
     Re-draws the centrifugal pump symbol used in the editor
     (src/symbols/equipment/CentrifugalPump.tsx) on a dark navy
     rounded-square plaque: discharge nozzle stub at the top, suction

@@ -2230,6 +2230,297 @@ export function getSymbol(type: string): SymbolDef | undefined {
   return SYMBOL_REGISTRY[type];
 }
 
+/**
+ * Plain-language "what is this and what does it do" blurb shown when hovering a
+ * palette symbol. Instruments are decoded from their ISA-5.1 tag rather than
+ * listed one-by-one (see `instrumentHelp`).
+ */
+export const SYMBOL_HELP: Record<string, string> = {
+  /* Pumps */
+  "centrifugal-pump":
+    "The workhorse pump — a spinning impeller flings liquid outward to add pressure. Great for moving lots of clean-ish liquid; flow falls as the head it must push against rises.",
+  "vertical-centrifugal-pump":
+    "A centrifugal pump on a vertical shaft, motor on top. Saves floor space and suits sump / inline duties.",
+  "submersible-pump":
+    "A pump that sits underwater with the liquid it's moving, motor sealed inside. Common for boreholes, sumps and wells — no priming needed.",
+  "gear-pump":
+    "A positive-displacement pump using meshing gears to push a fixed slug of fluid per turn. Smooth, steady flow — ideal for viscous liquids and dosing.",
+  "piston-pump":
+    "A reciprocating positive-displacement pump — a piston draws in and pushes out liquid. Delivers high pressure; flow pulses with each stroke.",
+  "screw-pump":
+    "A progressive-cavity / screw pump that gently moves fluid along rotating screws. Handles thick, shear-sensitive or solids-laden liquids with low pulsation.",
+  "diaphragm-pump":
+    "A flexing diaphragm draws and expels fluid, so nothing leaks past a shaft seal. Perfect for nasty, abrasive or hazardous fluids.",
+  "peristaltic-pump":
+    "A roller squeezes a flexible tube to push fluid along — the liquid only ever touches the tube. Excellent for precise, sterile or chemical dosing.",
+  "vacuum-pump":
+    "Removes gas from a system to create vacuum, rather than moving liquid.",
+  "pd-pump":
+    "A generic positive-displacement pump — moves a fixed volume per cycle, so flow stays roughly constant regardless of pressure.",
+
+  /* Compressors & blowers */
+  "centrifugal-compressor":
+    "Raises gas pressure with a high-speed impeller. Smooth, high-flow gas compression for continuous duty.",
+  "reciprocating-compressor":
+    "A piston compressor for high-pressure gas. Delivers in pulses; great for high compression ratios at modest flow.",
+  "screw-compressor":
+    "A rotary-screw compressor — two meshing rotors give continuous, oil-flooded or oil-free gas compression.",
+  fan: "A fan / blower moves large volumes of air or gas at low pressure rise — ventilation, combustion air, aeration.",
+
+  /* Tanks & vessels */
+  "vessel-vertical":
+    "A vertical pressure vessel with dished ends — used for surge, separation or as a process drum.",
+  "vessel-horizontal":
+    "A horizontal pressure vessel with dished ends — gives a large liquid surface for separation or buffering.",
+  "tank-horizontal":
+    "A horizontal storage tank for bulk liquid.",
+  "open-top-tank":
+    "An open-topped tank, vented to atmosphere — for non-volatile liquids at ambient pressure.",
+  "cone-roof-tank":
+    "An atmospheric storage tank with a fixed conical roof — standard for bulk liquid storage.",
+  "floating-roof-tank":
+    "A storage tank whose roof floats on the liquid surface, cutting vapour losses on volatile products like fuels.",
+  "spherical-tank":
+    "A sphere — the strongest shape for storing gases or volatiles under pressure (LPG, etc.).",
+  silo: "A silo / hopper for storing and discharging dry bulk solids or powders.",
+
+  /* Heat transfer */
+  "heat-exchanger":
+    "A shell & tube heat exchanger — transfers heat between two fluids kept apart by tube walls. The plant's general-purpose heater/cooler.",
+  "plate-heat-exchanger":
+    "Stacked thin plates give a huge heat-transfer area in a small box — compact, efficient, easy to clean.",
+  "air-cooled-exchanger":
+    "A fin-fan cooler — fans blow ambient air over finned tubes to reject process heat without cooling water.",
+  "kettle-reboiler":
+    "Boils up liquid at the bottom of a distillation column to generate the vapour that drives separation.",
+  condenser:
+    "Cools and condenses vapour back to liquid — typically the overheads of a column or a refrigeration loop.",
+  "fired-heater":
+    "A furnace that burns fuel to heat a process fluid directly in tubes — for high-temperature duties.",
+  "cooling-tower":
+    "Rejects waste heat to atmosphere by evaporating a little of the cooling water. The site's heat sink.",
+
+  /* Separation & columns */
+  column:
+    "A tray distillation column — separates a mixture into fractions by repeated boiling and condensing up the trays.",
+  "packed-column":
+    "A column filled with packing instead of trays — separation or absorption with a low pressure drop.",
+  "cyclone-separator":
+    "Spins the fluid so heavier solids/droplets fling to the wall and drop out — no moving parts.",
+  "two-phase-separator":
+    "A vessel that lets gas and liquid disengage and leave by separate outlets.",
+  "three-phase-separator":
+    "Separates gas, oil/organic and water into three streams by letting them settle out.",
+  "knockout-drum":
+    "A vessel that 'knocks out' entrained liquid from a gas stream to protect downstream compressors/flares.",
+
+  /* Mixing */
+  "static-mixer":
+    "Fixed internal elements blend two streams as they flow through — mixing with no moving parts.",
+  "agitated-tank":
+    "A tank with a powered impeller to keep contents mixed, suspended or reacting.",
+
+  /* Bioreactors & aquaculture */
+  "bioreactor-raceway":
+    "An open raceway pond where a paddlewheel circulates algae culture under sunlight — the classic low-cost algae growth system.",
+  "tubular-photobioreactor":
+    "A closed loop of transparent tubes for high-density algae growth with tight control and low contamination.",
+  "round-culture-tank":
+    "A circular culture / grow-out tank for algae or aquaculture.",
+  "moving-bed-bioreactor":
+    "A tank filled with carrier media that microbes grow on (MBBR) — used for biological water treatment.",
+  "protein-skimmer":
+    "Uses fine bubbles to strip dissolved organics and proteins out of water — common in aquaculture and aquaria.",
+  "paddlewheel-aerator":
+    "A surface paddlewheel that both circulates and aerates pond water by churning the surface.",
+  "oxygen-cone":
+    "A cone that dissolves pure oxygen into a water stream under pressure for high transfer efficiency.",
+  "settling-cone":
+    "A cone-bottomed vessel where solids settle and concentrate at the tip for draw-off.",
+  "biomass-collection-vessel":
+    "A vessel that collects and holds harvested biomass slurry.",
+  "ibc-container":
+    "An Intermediate Bulk Container (IBC) — the ~1 m³ caged tote for transporting and storing liquids.",
+  "chemical-drum":
+    "A standard chemical drum for storing or dosing smaller quantities of process chemicals.",
+
+  /* Valves — isolation */
+  "gate-valve":
+    "An isolation valve with a sliding gate — fully open or fully shut. Very low pressure drop when open; not for throttling.",
+  "ball-valve":
+    "A quarter-turn valve with a bored ball — quick, tight shut-off and almost no restriction when open.",
+  "butterfly-valve":
+    "A quarter-turn disc valve — compact and cheap for larger lines; can isolate and roughly throttle.",
+  "plug-valve":
+    "A quarter-turn tapered/cylindrical plug — robust isolation, good for slurries and frequent operation.",
+  "diaphragm-valve":
+    "A flexible diaphragm seals against a weir — no crevices, so ideal for sterile, hygienic or corrosive duties.",
+  "pinch-valve":
+    "Pinches a flexible sleeve shut — the only wetted part is the sleeve, perfect for slurries and abrasives.",
+  "needle-valve":
+    "A fine-tapered stem gives precise low-flow throttling — for sampling, instruments and metering.",
+  "hand-valve":
+    "A generic manually-operated valve where the exact type isn't specified.",
+  "priming-valve":
+    "A small fill/vent valve used to charge a pump with liquid before start-up (self-priming / suction lift).",
+
+  /* Valves — specialty */
+  "globe-valve":
+    "A valve built for throttling — flow turns through a globe-shaped seat. Good control, higher pressure drop.",
+  "angle-valve":
+    "A globe-type throttling valve with inlet and outlet at 90°, saving an elbow.",
+  "three-way-valve":
+    "One valve, three ports — diverts flow to one of two paths or mixes two streams into one.",
+
+  /* Valves — check */
+  "check-valve":
+    "A non-return (swing) valve — lets flow go one way and slams shut if it tries to reverse.",
+  "lift-check-valve":
+    "A check valve whose disc lifts off its seat with forward flow and drops back to block reverse flow.",
+  "foot-valve":
+    "A check valve with a strainer on a pump's suction inlet — keeps the line primed and debris out.",
+
+  /* Valves — actuated & control */
+  "control-valve":
+    "An automatically-actuated valve that throttles flow to a setpoint from the control system — the final element of most control loops.",
+  "motor-operated-valve":
+    "A valve driven open/closed by an electric motor actuator (MOV) for remote operation.",
+  "solenoid-valve":
+    "An electrically-operated on/off valve — energise the coil to switch flow. Fast, common in interlocks.",
+  "pressure-regulator":
+    "A self-acting valve that holds a set downstream pressure regardless of upstream changes.",
+
+  /* Valves — relief & safety */
+  "relief-valve":
+    "A safety valve that pops open if pressure exceeds its set point, protecting equipment from over-pressure.",
+  "rupture-disc":
+    "A one-shot burst disc that ruptures at a set pressure for instant over-pressure relief.",
+  "breather-valve":
+    "A pressure/vacuum vent that lets a tank breathe as it fills/empties while limiting vapour loss.",
+  "flame-arrestor":
+    "A mesh device that lets gas pass but quenches any flame, stopping a fire propagating along the line.",
+
+  /* Filters & strainers */
+  "y-strainer":
+    "A Y-shaped body holding a screen that catches debris — protects pumps and valves. Low cost, cleanable.",
+  "t-strainer":
+    "An inline T-body strainer for larger lines — screens out solids with easy basket access.",
+  "basket-strainer":
+    "A larger basket screen for higher dirt loads — the basket lifts out for cleaning.",
+  "simplex-filter":
+    "A single filter housing for fine filtration — must be taken offline to change the element.",
+  "duplex-filter":
+    "Two filter housings with a changeover valve — switch to the spare and clean one without stopping flow.",
+  "bag-filter":
+    "A filter bag in a housing catches fine solids — high dirt capacity, swap the bag when it loads up.",
+  "cartridge-filter":
+    "Replaceable cartridge elements for fine/polishing filtration.",
+  "sand-filter":
+    "A bed of sand/media for bulk water clarification — backwashed to clean.",
+  "vibration-filter":
+    "A vibrating-screen filter that shakes solids across a mesh to separate them from liquid.",
+  "drum-filter":
+    "A rotating drum screen — continuous fine solids removal, common in aquaculture and water treatment.",
+
+  /* Inline — flow elements */
+  "orifice-plate":
+    "A plate with a precise hole — the pressure drop across it is measured to infer flow rate. Cheap and standard.",
+  venturi:
+    "A smooth contraction/expansion that measures flow from its pressure drop with far less permanent loss than an orifice.",
+  rotameter:
+    "A variable-area flow meter — a float rises in a tapered tube to show flow at a glance.",
+  "pitot-probe":
+    "A probe that senses velocity pressure in the line to infer flow.",
+
+  /* Inline — traps & vents */
+  "steam-trap":
+    "Automatically drains condensate from steam lines while holding back live steam.",
+  "air-vent":
+    "Lets trapped air/gas escape from a high point so it doesn't airlock the line.",
+  drain: "A low-point drain for emptying or removing condensate/sediment from a line.",
+
+  /* Inline — sample & sight */
+  "sight-glass":
+    "A clear window in the line so operators can see flow, colour or level.",
+  "sample-point":
+    "A tapping fitted with a valve to draw a representative sample of the process fluid.",
+
+  /* Inline — mechanical */
+  "concentric-reducer":
+    "Changes pipe size on a shared centreline — used on vertical runs and where symmetry suits.",
+  "eccentric-reducer":
+    "Changes pipe size with one flat side — keeps a flat top (or bottom) to avoid trapping gas or liquid on pump suctions.",
+  "expansion-joint":
+    "A flexible section that absorbs thermal growth, vibration or slight misalignment.",
+  "spectacle-blind":
+    "A figure-8 plate swung between flanges to positively blank off or open a line for isolation.",
+  "pipe-cap":
+    "Seals the end of a pipe — a dead end or future tie-in point.",
+
+  /* Inline — disinfection & gas */
+  "spray-nozzle":
+    "Atomises liquid into a spray pattern — washing, cooling, scrubbing or dosing.",
+  "uv-sterilizer":
+    "Passes fluid past UV lamps to kill microorganisms without chemicals.",
+  "co2-injector":
+    "Injects and dissolves CO₂ into a liquid stream — for pH control or feeding algae cultures.",
+  "air-diffuser":
+    "Releases fine air bubbles to aerate / oxygenate liquid (aeration tanks, ponds).",
+
+  /* Connectors */
+  "tap-point":
+    "A process-line tap where an instrument connection is taken off the pipe.",
+  "pipe-tee":
+    "A tee junction joining or splitting flow between three pipe runs.",
+  "off-page-connector":
+    "A reference flag showing a line continues on another drawing/page — keeps big systems readable.",
+};
+
+/** Decodes an ISA-5.1 instrument into a readable "what it does" sentence. */
+function instrumentHelp(symbol: SymbolDef): string {
+  const m = symbol.description?.match(/^(\S+)\s*\((.+)\)$/);
+  const code = m?.[1] ?? symbol.tagPrefix ?? "";
+  const name = m?.[2] ?? symbol.label;
+  const lower = name.toLowerCase();
+  let role: string;
+  if (lower.includes("indicating controller"))
+    role =
+      "compares the reading to a setpoint and drives a final element (e.g. a control valve) to hold it";
+  else if (lower.includes("controller"))
+    role = "regulates the variable to a setpoint via a final element";
+  else if (lower.includes("transmitter"))
+    role =
+      "measures the variable and sends a 4–20 mA / digital signal to the control system";
+  else if (lower.includes("indicator"))
+    role = "displays the value locally for the operator";
+  else if (lower.includes("element"))
+    role = "is the primary sensor the rest of the loop reads";
+  else if (lower.includes("totaliser") || lower.includes("totalizer"))
+    role = "integrates flow over time to give a running total";
+  else if (lower.includes("switch low"))
+    role = "trips a contact when the value falls below its limit (alarm / interlock)";
+  else if (lower.includes("switch high"))
+    role = "trips a contact when the value rises above its limit (alarm / interlock)";
+  else if (lower.includes("alarm low"))
+    role = "annunciates when the value falls below its limit";
+  else if (lower.includes("gauge"))
+    role = "gives a direct local indication";
+  else if (lower.includes("emergency shutdown"))
+    role = "initiates a safe shutdown when triggered";
+  else if (lower.includes("hand switch"))
+    role = "is an operator-actuated switch in the control scheme";
+  else role = "monitors this process variable";
+  return `${name} (${code}) — ${role}. Drawn as an ISA-5.1 balloon; the dashed signal line shows where it connects.`;
+}
+
+/** "What is it / what does it do" help text for a palette symbol. */
+export function getSymbolHelp(symbol: SymbolDef): string {
+  const explicit = SYMBOL_HELP[symbol.type];
+  if (explicit) return explicit;
+  if (symbol.type.startsWith("instrument-")) return instrumentHelp(symbol);
+  return symbol.description ?? symbol.label;
+}
+
 export function symbolsByCategory(category: SymbolCategory): SymbolDef[] {
   return Object.values(SYMBOL_REGISTRY).filter((s) => s.category === category);
 }

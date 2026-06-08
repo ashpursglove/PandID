@@ -16,9 +16,26 @@ import { resolvePipePreset, type PipeMaterialId } from "@/presets/pipes";
 import { nextEdgeId, nextNodeId } from "@/lib/ids";
 import { nextTag } from "@/components/Canvas/autoTag";
 import { getSymbol } from "@/symbols/registry";
+import {
+  nodeMoveDeltas,
+  shiftWaypointsForNodeMoves,
+} from "@/components/shared/edgeRouting";
+import { directAssembly, propagateDirectMoves } from "@/components/shared/boltSnap";
+import { prepareImportedGraph } from "@/io/importGraph";
 
 export type DiagramNode = Node<SymbolNodeData>;
 export type DiagramEdge = Edge<PipeEdgeData>;
+
+/** True for a bolted (direct, no-pipe) connection. */
+function isDirectEdge(e: DiagramEdge): boolean {
+  return e.data?.direct === true;
+}
+
+function directLinksOf(edges: DiagramEdge[]): { source: string; target: string }[] {
+  return edges
+    .filter(isDirectEdge)
+    .map((e) => ({ source: e.source, target: e.target }));
+}
 
 /**
  * Snapshot of nodes + connecting edges captured by copy/cut, ready to be
@@ -58,11 +75,29 @@ interface DiagramState {
     addEdges?: DiagramEdge[];
     removeEdges?: string[];
   }) => void;
+  /** Snap a dragged node onto another's port and bolt them with a no-pipe
+   *  direct connection. Moves the dragged node's whole bolted assembly by
+   *  (dx, dy) so the two ports coincide. */
+  boltNodeTo: (
+    draggedId: string,
+    dx: number,
+    dy: number,
+    sourceHandle: string,
+    targetNodeId: string,
+    targetHandle: string,
+  ) => void;
+  /** Select a single edge (used by the bolted junction dot). */
+  selectEdge: (id: string) => void;
+  /** Delete one edge by id (used by the inspector's Unbolt action). */
+  removeEdgeById: (id: string) => void;
   updateNodeData: (id: string, patch: Partial<SymbolNodeData>) => void;
   updateEdgeData: (id: string, patch: Partial<PipeEdgeData>) => void;
   rotateSelected: (deltaDeg: number) => void;
   removeSelected: () => void;
   replaceAll: (nodes: DiagramNode[], edges: DiagramEdge[]) => void;
+  /** Merge an imported graph in above existing content, pre-selected so it can
+   *  be dragged into place. */
+  importGraph: (nodes: DiagramNode[], edges: DiagramEdge[]) => void;
   clear: () => void;
 
   /** Clipboard operations. Return `true` if anything was copied/pasted. */
@@ -119,8 +154,20 @@ export const useDiagramStore = create<DiagramState>()(
       selectedEdgeIds: [],
       clipboard: null,
 
-      onNodesChange: (changes) =>
-        set({ nodes: applyNodeChanges(changes, get().nodes) }),
+      onNodesChange: (changes) => {
+        const prev = get().nodes;
+        const applied = applyNodeChanges(changes, prev);
+        const baseDeltas = nodeMoveDeltas(prev, applied);
+        // Bolted parts move as one rigid assembly: propagate a dragged node's
+        // delta to everything reachable from it over direct edges.
+        const { nodes, deltas } = propagateDirectMoves(
+          applied,
+          directLinksOf(get().edges),
+          baseDeltas,
+        );
+        const edges = shiftWaypointsForNodeMoves(get().edges, deltas);
+        set({ nodes, edges });
+      },
 
       onEdgesChange: (changes) =>
         set({ edges: applyEdgeChanges(changes, get().edges) }),
@@ -188,6 +235,66 @@ export const useDiagramStore = create<DiagramState>()(
           ],
         });
       },
+
+      boltNodeTo: (draggedId, dx, dy, sourceHandle, targetNodeId, targetHandle) => {
+        const { nodes, edges } = get();
+        const assembly = directAssembly(draggedId, directLinksOf(edges));
+        const movedNodes =
+          dx === 0 && dy === 0
+            ? nodes
+            : nodes.map((n) =>
+                assembly.has(n.id)
+                  ? {
+                      ...n,
+                      position: { x: n.position.x + dx, y: n.position.y + dy },
+                    }
+                  : n,
+              );
+        const exists = edges.some(
+          (e) =>
+            isDirectEdge(e) &&
+            ((e.source === draggedId &&
+              e.target === targetNodeId &&
+              e.sourceHandle === sourceHandle &&
+              e.targetHandle === targetHandle) ||
+              (e.source === targetNodeId &&
+                e.target === draggedId &&
+                e.sourceHandle === targetHandle &&
+                e.targetHandle === sourceHandle)),
+        );
+        const newEdge: DiagramEdge = {
+          id: nextEdgeId(),
+          type: "pipe",
+          source: draggedId,
+          sourceHandle,
+          target: targetNodeId,
+          targetHandle,
+          data: { direct: true },
+        };
+        set({
+          nodes: movedNodes,
+          edges: exists ? edges : [...edges, newEdge],
+        });
+      },
+
+      selectEdge: (id) =>
+        set({
+          nodes: get().nodes.map((n) =>
+            n.selected ? { ...n, selected: false } : n,
+          ),
+          edges: get().edges.map((e) => ({ ...e, selected: e.id === id })),
+          selectedNodeId: null,
+          selectedNodeIds: [],
+          selectedEdgeId: id,
+          selectedEdgeIds: [id],
+        }),
+
+      removeEdgeById: (id) =>
+        set({
+          edges: get().edges.filter((e) => e.id !== id),
+          selectedEdgeId: get().selectedEdgeId === id ? null : get().selectedEdgeId,
+          selectedEdgeIds: get().selectedEdgeIds.filter((x) => x !== id),
+        }),
 
       updateNodeData: (id, patch) =>
         set({
@@ -370,6 +477,32 @@ export const useDiagramStore = create<DiagramState>()(
           selectedNodeIds: [],
           selectedEdgeIds: [],
         }),
+
+      importGraph: (incomingNodes, incomingEdges) => {
+        const { nodes, edges } = get();
+        const prepared = prepareImportedGraph(
+          nodes,
+          incomingNodes,
+          incomingEdges,
+          nextNodeId,
+          nextEdgeId,
+        );
+        if (prepared.nodes.length === 0) return;
+        set({
+          nodes: [
+            ...nodes.map((n) => (n.selected ? { ...n, selected: false } : n)),
+            ...prepared.nodes,
+          ],
+          edges: [
+            ...edges.map((e) => (e.selected ? { ...e, selected: false } : e)),
+            ...prepared.edges,
+          ],
+          selectedNodeId: prepared.nodes[0]?.id ?? null,
+          selectedNodeIds: prepared.nodes.map((n) => n.id),
+          selectedEdgeId: null,
+          selectedEdgeIds: [],
+        });
+      },
 
       clear: () =>
         set({

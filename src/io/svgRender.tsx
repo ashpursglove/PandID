@@ -13,8 +13,37 @@ import { getSymbol } from "@/symbols/registry";
 import { LINE_STYLES } from "@/symbols/lines/lineStyles";
 import type { DiagramEdge, DiagramNode } from "@/store/diagramStore";
 import type { ProjectMeta } from "@/store/projectStore";
+import { DEFAULT_ZONE_COLOR, isZoneNode, zoneBoxSize } from "@/components/shared/zone";
 
 import { diagramBounds, portWorldPosition } from "./geometry";
+import { resolveTagSide, tagSvgCoords } from "./tagPlacement";
+import { buildRoutedPath, type RoutePoint } from "@/components/shared/edgeRouting";
+
+/* ----- Shared zone (area-box) rendering --------------------------------- */
+
+/** Render a zone/area box in world coordinates (sits behind everything). */
+export function renderZoneWorld(node: { position: { x: number; y: number }; width?: number | null; height?: number | null; measured?: { width?: number | null; height?: number | null } | null; data: Record<string, unknown> }): string {
+  const { w, h } = zoneBoxSize(node);
+  const color = (node.data.zoneColor as string) || DEFAULT_ZONE_COLOR;
+  return `<rect x="${node.position.x.toFixed(3)}" y="${node.position.y.toFixed(3)}" width="${w.toFixed(3)}" height="${h.toFixed(3)}" rx="4" fill="${color}" fill-opacity="0.07" stroke="${color}" stroke-width="0.7" stroke-dasharray="3 2" vector-effect="non-scaling-stroke" pointer-events="none" />`;
+}
+
+/** Render the zone's label chip in drawing-mm coordinates (top-left corner). */
+export function renderZoneLabel(
+  node: { position: { x: number; y: number }; data: Record<string, unknown> },
+  scale: number,
+  offsetX: number,
+  offsetY: number,
+): string {
+  const label = ((node.data.zoneLabel as string) || "Area").trim();
+  if (!label) return "";
+  const color = (node.data.zoneColor as string) || DEFAULT_ZONE_COLOR;
+  const x = node.position.x * scale + offsetX;
+  const y = node.position.y * scale + offsetY;
+  const fs = 3;
+  const chipW = Math.max(8, label.length * fs * 0.58 + 4);
+  return `<g pointer-events="none"><rect x="${(x + 2).toFixed(2)}" y="${(y - 1).toFixed(2)}" width="${chipW.toFixed(2)}" height="${(fs + 2).toFixed(2)}" rx="1" fill="${color}" /><text x="${(x + 4).toFixed(2)}" y="${(y + fs + 0.1).toFixed(2)}" font-size="${fs}" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="bold" fill="#0b0f17">${escapeText(label)}</text></g>`;
+}
 
 /* ----- Page geometry (mm) ----------------------------------------------- */
 
@@ -262,6 +291,11 @@ export interface DiagramAreaOptions {
    *  Only applied to pipes — components have a single drawn outline so a
    *  user-tweakable width doesn't make sense there. */
   widthOverrides?: Record<string, number>;
+  /** Clip the rendered diagram to the drawing-area rectangle. Used when the
+   *  page reproduces an exact captured viewport (bounds = the framed window),
+   *  so any nodes that were only partly on-screen get cropped at the page edge
+   *  instead of spilling over the frame / title block. */
+  clip?: boolean;
 }
 
 const DEFAULT_INK = "#000";
@@ -320,6 +354,10 @@ export function renderDiagramArea(
   const innerNodes = nodes
     .map((n) => renderNodeWorld(n, overrides[n.id]))
     .filter(Boolean);
+  const innerZones = nodes
+    .filter((n) => isZoneNode(n))
+    .map((n) => renderZoneWorld(n))
+    .filter(Boolean);
 
   // Tags and edge labels render OUTSIDE the scaling group, in drawing-mm
   // coordinates and at fixed mm font sizes. Pulling them out of the scale
@@ -336,13 +374,27 @@ export function renderDiagramArea(
     )
     .filter(Boolean)
     .join("");
+  const zoneLabels = nodes
+    .filter((n) => isZoneNode(n))
+    .map((n) => renderZoneLabel(n, scale, offsetX, offsetY))
+    .filter(Boolean)
+    .join("");
 
-  return `<g class="diagram">
-    <g transform="translate(${offsetX.toFixed(3)} ${offsetY.toFixed(3)}) scale(${scale.toFixed(5)})">
-      <g class="edges">${innerEdges.join("")}</g>
-      <g class="nodes">${innerNodes.join("")}</g>
+  const clipId = `dclip-${Math.random().toString(36).slice(2, 8)}`;
+  const clipDef = options.clip
+    ? `<defs><clipPath id="${clipId}"><rect x="${innerX.toFixed(3)}" y="${innerY.toFixed(3)}" width="${innerW.toFixed(3)}" height="${innerH.toFixed(3)}" /></clipPath></defs>`
+    : "";
+  const clipAttr = options.clip ? ` clip-path="url(#${clipId})"` : "";
+
+  return `<g class="diagram">${clipDef}
+    <g${clipAttr}>
+      <g transform="translate(${offsetX.toFixed(3)} ${offsetY.toFixed(3)}) scale(${scale.toFixed(5)})">
+        <g class="zones">${innerZones.join("")}</g>
+        <g class="edges">${innerEdges.join("")}</g>
+        <g class="nodes">${innerNodes.join("")}</g>
+      </g>
+      <g class="labels">${zoneLabels}${tagMarkup}${edgeLabels}</g>
     </g>
-    <g class="labels">${tagMarkup}${edgeLabels}</g>
   </g>`;
 }
 
@@ -388,12 +440,22 @@ function renderNodeTag(
   if (!tag) return "";
 
   const { size } = symbol;
-  const cx = (node.position.x + size.width / 2) * scale + offsetX;
-  const cy = (node.position.y + size.height) * scale + offsetY;
+  const rotation = node.data.rotation ?? 0;
+  const side = resolveTagSide(symbol.ports, rotation);
   const fontSize = Math.max(2.6, Math.min(4.5, size.height * scale * 0.18));
-  const ty = cy + fontSize + 0.4;
+  const { x, y, anchor } = tagSvgCoords(
+    side,
+    node.position.x,
+    node.position.y,
+    size.width,
+    size.height,
+    scale,
+    offsetX,
+    offsetY,
+    fontSize,
+  );
   const fill = override ?? TAG_INK;
-  return `<text x="${cx.toFixed(3)}" y="${ty.toFixed(3)}" text-anchor="middle" font-size="${fontSize.toFixed(2)}" font-family="Inter, Helvetica, Arial, sans-serif" fill="${fill}" pointer-events="none">${escapeText(tag)}</text>`;
+  return `<text x="${x.toFixed(3)}" y="${y.toFixed(3)}" text-anchor="${anchor}" font-size="${fontSize.toFixed(2)}" font-family="Inter, Helvetica, Arial, sans-serif" fill="${fill}" pointer-events="none">${escapeText(tag)}</text>`;
 }
 
 /**
@@ -424,22 +486,45 @@ function renderEdgeWorld(
   const s = portWorldPosition(source, edge.sourceHandle);
   const t = portWorldPosition(target, edge.targetHandle);
 
+  // Bolted (direct) joins carry no pipe — the two ports coincide, so draw a
+  // small junction dot rather than a routed line.
+  if (edge.data?.direct) {
+    const cx = (s.x + t.x) / 2;
+    const cy = (s.y + t.y) / 2;
+    const fill = override ?? DEFAULT_INK;
+    return `<g data-element-id="${escapeText(edge.id)}" data-element-kind="edge"><circle cx="${cx.toFixed(3)}" cy="${cy.toFixed(3)}" r="2.4" fill="${fill}" pointer-events="all" /></g>`;
+  }
+
   // Cap the elbow radius when source/target are close. The editor's smooth
   // step path uses radius 8 — but on a very short segment that radius gets
   // squeezed, which (combined with non-scaling-stroke + small parent scale)
   // produces visibly thinner / broken rendering at the elbow. Scaling the
   // radius down keeps the geometry well-formed for close components.
   const dist = Math.hypot(t.x - s.x, t.y - s.y);
-  const borderRadius = Math.max(1, Math.min(8, dist * 0.25));
-  const [path] = getSmoothStepPath({
-    sourceX: s.x,
-    sourceY: s.y,
-    targetX: t.x,
-    targetY: t.y,
-    sourcePosition: s.position,
-    targetPosition: t.position,
+  const borderRadius = Math.max(1, Math.min(18, dist * 0.35));
+  const waypoints = (edge.data?.waypoints as RoutePoint[] | undefined) ?? [];
+  const [path] = buildRoutedPath(
+    {
+      sourceX: s.x,
+      sourceY: s.y,
+      targetX: t.x,
+      targetY: t.y,
+      sourcePosition: s.position,
+      targetPosition: t.position,
+    },
+    waypoints,
     borderRadius,
-  });
+    (a) =>
+      getSmoothStepPath({
+        sourceX: a.sourceX,
+        sourceY: a.sourceY,
+        targetX: a.targetX,
+        targetY: a.targetY,
+        sourcePosition: a.sourcePosition,
+        targetPosition: a.targetPosition,
+        borderRadius,
+      }),
+  );
 
   const lineType = edge.data?.lineType ?? "process";
   const style = LINE_STYLES[lineType];
@@ -462,7 +547,7 @@ function renderEdgeWorld(
   // Wider, transparent hit area for easy clicking. Drawn *under* the visible
   // path inside the same data-element group so a click anywhere along the
   // pipe selects it.
-  const hit = `<path d="${path}" fill="none" stroke="transparent" stroke-width="3.5" vector-effect="non-scaling-stroke" pointer-events="stroke" />`;
+  const hit = `<path d="${path}" fill="none" stroke="transparent" stroke-width="9" vector-effect="non-scaling-stroke" pointer-events="stroke" />`;
 
   const primary = `<path class="pid-stroke" d="${path}" fill="none" stroke="${stroke}" stroke-width="${baseW.toFixed(3)}" ${
     dash ? `stroke-dasharray="${dash}"` : ""
@@ -491,8 +576,26 @@ function renderEdgeLabel(
   if (!source || !target) return "";
   const s = portWorldPosition(source, edge.sourceHandle);
   const t = portWorldPosition(target, edge.targetHandle);
-  const mx = ((s.x + t.x) / 2) * scale + offsetX;
-  const my = ((s.y + t.y) / 2) * scale + offsetY - 1;
+  const waypoints = (edge.data?.waypoints as RoutePoint[] | undefined) ?? [];
+  const [, lx, ly] = buildRoutedPath(
+    {
+      sourceX: s.x,
+      sourceY: s.y,
+      targetX: t.x,
+      targetY: t.y,
+      sourcePosition: s.position,
+      targetPosition: t.position,
+    },
+    waypoints,
+    1,
+    (a) => [
+      "",
+      (a.sourceX + a.targetX) / 2,
+      (a.sourceY + a.targetY) / 2,
+    ],
+  );
+  const mx = lx * scale + offsetX;
+  const my = ly * scale + offsetY - 1;
   const fill = override ?? TAG_INK;
   return `<text x="${mx}" y="${my}" font-size="2.4" font-family="Inter, Helvetica, Arial, sans-serif" text-anchor="middle" fill="${fill}" pointer-events="none">${escapeText(tag)}</text>`;
 }
@@ -512,7 +615,7 @@ export function textAt(
   bold = false,
 ): string {
   return `<text x="${x}" y="${y}" font-size="${size}" font-family="Inter, Helvetica, Arial, sans-serif" text-anchor="${anchor}" ${
-    bold ? 'font-weight="600"' : ""
+    bold ? 'font-weight="bold"' : ""
   } fill="#0f172a">${escapeText(text)}</text>`;
 }
 

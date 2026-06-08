@@ -12,7 +12,7 @@ import {
   type SerialiseInput,
 } from "./projectFile";
 
-const FILE_FILTER = { name: "P&ID Playground Project", extensions: ["pid"] };
+const FILE_FILTER = { name: "MEP Playground Project", extensions: ["pid"] };
 
 interface DiskFile {
   path: string;

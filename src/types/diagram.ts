@@ -27,13 +27,24 @@ export interface SymbolNodeData {
   params?: Record<string, unknown>;
   /** Optional rotation in degrees, multiples of 90. */
   rotation?: number;
+  /** When false, omit from equipment BOM / equipment CSV. Default: included. */
+  includeInReports?: boolean;
 }
 
 /** Default React Flow edge `data` payload. */
 export interface PipeEdgeData {
   [key: string]: unknown;
   lineType?: LineType;
+  /** Bolted / direct connection — components mounted together with no pipe
+   *  between them (e.g. a flange-mounted valve on a pump). Drawn as a junction
+   *  dot rather than a routed line. */
+  direct?: boolean;
   tag?: string;
+  /** When false, omit from pipe / fitting BOM. Default: included. */
+  includeInReports?: boolean;
+  /** Manual routing bend points (flow coords). Cosmetic only — they arrange the
+   *  drawing and have no process meaning. */
+  waypoints?: { x: number; y: number }[];
   /** Pipe parameters (length, diameter, roughness, fittings...) */
   pipe?: {
     lengthM?: number;

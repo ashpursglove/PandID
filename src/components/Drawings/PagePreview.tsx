@@ -18,6 +18,7 @@ import {
   useDrawingsStore,
   type Annotation,
   type DrawingPage,
+  type SldView,
 } from "@/store/drawingsStore";
 import { renderDrawingPage } from "@/io/drawingsRender";
 import { PAGE_H, PAGE_W } from "@/io/svgRender";
@@ -44,6 +45,17 @@ interface SelectedElement {
 const PLACEMENT_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><g fill="none" stroke="#000" stroke-width="2" stroke-linecap="round"><path d="M16 4v8M16 20v8M4 16h8M20 16h8"/></g><circle cx="16" cy="16" r="2" fill="#000"/></svg>',
 )}") 16 16, crosshair`;
+
+// The OS "grab"/"grabbing" cursors are often a near-white hand that vanishes
+// against the white drawing sheet. These custom dark cursors (black fill +
+// white outline) stay visible on any background. The idle one is a normal
+// arrow so clicking still feels natural; the active-pan one is a four-way move.
+const ARROW_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M5 3 L5 19 L9.5 14.7 L12.3 21 L15 19.8 L12.2 13.9 L18 13.6 Z" fill="#111" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>',
+)}") 5 3, default`;
+const PAN_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28"><path d="M14 2 L18 6 H15 V13 H22 V10 L26 14 L22 18 V15 H15 V22 H18 L14 26 L10 22 H13 V15 H6 V18 L2 14 L6 10 V13 H13 V6 H10 Z" fill="#111" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>',
+)}") 14 14, grabbing`;
 
 const COLOR_PALETTE: { label: string; value: string }[] = [
   { label: "Black", value: "#000000" },
@@ -156,9 +168,10 @@ export function PagePreview({ page, pageNumber, totalPages }: Props) {
     });
   }
 
-  // Only diagram pages render selectable nodes/edges — analysis pages have
-  // their own (read-only) styling, BOM pages are pure text, etc.
-  const elementSelectable = page.type === "diagram";
+  // Diagram (P&ID) and SLD pages render selectable nodes/edges that can be
+  // recoloured / re-weighted; analysis pages have their own (read-only)
+  // styling, BOM/schedule pages are pure text, etc.
+  const elementSelectable = page.type === "diagram" || page.type === "sld";
 
   // Clear any stale element selection whenever the visible page or page type
   // changes, so leftover selection state can't bleed across sheets.
@@ -272,22 +285,39 @@ export function PagePreview({ page, pageNumber, totalPages }: Props) {
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
-  // --- middle-button / space-drag panning ---
-  const panState = useRef<{ startX: number; startY: number; pan0: { x: number; y: number } } | null>(
-    null,
-  );
+  // --- click-drag panning (left or middle button) ---
+  // Left-drag pans the sheet just like the editor canvas. Because the same
+  // left button is also used to select diagram elements, we only treat a drag
+  // as a pan once it moves past a small threshold, and we suppress the
+  // follow-up `click` so a pan never accidentally selects/deselects.
+  const panState = useRef<{
+    startX: number;
+    startY: number;
+    pan0: { x: number; y: number };
+    moved: boolean;
+  } | null>(null);
+  const [panning, setPanning] = useState(false);
+  // When true, the next element/annotation click is ignored (it was the tail
+  // end of a pan, not an intentional click).
+  const suppressClickRef = useRef(false);
+
   useEffect(() => {
     function onMove(ev: MouseEvent) {
-      if (!panState.current) return;
-      const dx = ev.clientX - panState.current.startX;
-      const dy = ev.clientY - panState.current.startY;
-      setPan({
-        x: panState.current.pan0.x + dx,
-        y: panState.current.pan0.y + dy,
-      });
+      const st = panState.current;
+      if (!st) return;
+      const dx = ev.clientX - st.startX;
+      const dy = ev.clientY - st.startY;
+      if (!st.moved && Math.hypot(dx, dy) < 4) return; // tolerate click jitter
+      if (!st.moved) {
+        st.moved = true;
+        setPanning(true);
+      }
+      setPan({ x: st.pan0.x + dx, y: st.pan0.y + dy });
     }
     function onUp() {
+      if (panState.current?.moved) suppressClickRef.current = true;
       panState.current = null;
+      setPanning(false);
     }
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -298,13 +328,18 @@ export function PagePreview({ page, pageNumber, totalPages }: Props) {
   }, []);
 
   function onMouseDownViewport(ev: React.MouseEvent) {
-    // Middle button starts a pan.
-    if (ev.button === 1) {
+    // Middle button always pans. Left button pans only in select mode — in a
+    // placement mode (text/note/arrow) the left click is placing an annotation.
+    const leftPan = ev.button === 0 && toolRef.current === "select";
+    if (ev.button === 1 || leftPan) {
+      // Stop the browser starting a text/element selection drag on the static
+      // base SVG — otherwise panning highlights all the SLD/schedule text.
       ev.preventDefault();
       panState.current = {
         startX: ev.clientX,
         startY: ev.clientY,
-        pan0: { ...pan },
+        pan0: { ...panRef.current },
+        moved: false,
       };
     }
   }
@@ -330,6 +365,11 @@ export function PagePreview({ page, pageNumber, totalPages }: Props) {
     if (!root) return;
     function onClick(ev: MouseEvent) {
       if (toolRef.current !== "select" || !elementSelectableRef.current) return;
+      // Swallow the click that ends a pan-drag so it doesn't change selection.
+      if (suppressClickRef.current) {
+        suppressClickRef.current = false;
+        return;
+      }
       const target = ev.target as Element | null;
       if (!target) return;
       const el = target.closest("[data-element-id]") as SVGElement | null;
@@ -461,6 +501,11 @@ export function PagePreview({ page, pageNumber, totalPages }: Props) {
 
   async function onCaptureClick(e: React.MouseEvent<SVGRectElement>) {
     if (!svgRef.current) return;
+    // Ignore the click that terminates a pan-drag.
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
     const p = pageCoordsFrom(e, svgRef.current);
 
     if (tool === "text") {
@@ -559,6 +604,15 @@ export function PagePreview({ page, pageNumber, totalPages }: Props) {
       : undefined;
   const selectedLabel = useMemo(() => {
     if (!selectedElement) return "";
+    // SLD pages carry a frozen electrical snapshot with a different data
+    // shape (connectionType, symbolType) so they get their own describer.
+    if (page.type === "sld" && page.sld) {
+      return describeSldElement(
+        selectedElement,
+        page.sld.nodes,
+        page.sld.edges,
+      );
+    }
     // Diagram pages render the *frozen* snapshot, so we resolve labels from
     // it; if that's missing (e.g. element was removed from the live diagram
     // after capture) we fall back to live state and finally to a generic
@@ -566,7 +620,7 @@ export function PagePreview({ page, pageNumber, totalPages }: Props) {
     const nodes = page.diagram?.nodes ?? liveNodes;
     const edges = page.diagram?.edges ?? liveEdges;
     return describeElement(selectedElement, nodes, edges);
-  }, [selectedElement, page.diagram, liveNodes, liveEdges]);
+  }, [selectedElement, page.type, page.sld, page.diagram, liveNodes, liveEdges]);
 
   const placementActive = tool !== "select";
 
@@ -625,7 +679,16 @@ export function PagePreview({ page, pageNumber, totalPages }: Props) {
         className="relative flex-1 overflow-hidden bg-zinc-950"
         onMouseDown={onMouseDownViewport}
         style={{
-          cursor: placementActive ? PLACEMENT_CURSOR : panState.current ? "grabbing" : undefined,
+          cursor: placementActive
+            ? PLACEMENT_CURSOR
+            : panning
+              ? PAN_CURSOR
+              : ARROW_CURSOR,
+          // The drawing sheet is never a text document — disabling selection
+          // keeps click-drag panning from highlighting all the SLD / schedule
+          // text underneath the cursor.
+          userSelect: "none",
+          WebkitUserSelect: "none",
         }}
       >
         {/* Page wrapper. We resize it in actual CSS pixels (width/height) for
@@ -658,7 +721,9 @@ export function PagePreview({ page, pageNumber, totalPages }: Props) {
             className="absolute inset-0"
             style={{
               pointerEvents:
-                tool === "select" && elementSelectable ? "auto" : "none",
+                tool === "select" && elementSelectable && !panning
+                  ? "auto"
+                  : "none",
             }}
             dangerouslySetInnerHTML={{ __html: baseSvg }}
           />
@@ -844,7 +909,7 @@ function Toolbar({
         </div>
         <div className="flex items-center gap-1 text-[10px] text-zinc-500">
           <Sparkles size={11} className="text-amber-400" />
-          Scroll to zoom · middle-drag to pan · click pipe / component to recolour
+          Scroll to zoom · drag to pan · click pipe / component to recolour
         </div>
       </div>
     </div>
@@ -1069,6 +1134,46 @@ function describeElement(
   const dstLabel = dst?.data.tag || dst?.data.label || e.target;
   const lineType = e.data?.lineType ?? "process";
   return `${prettyLineType(lineType)} · ${srcLabel} → ${dstLabel}`;
+}
+
+/** Label resolver for frozen electrical SLD snapshots (ElecNode / ElecEdge). */
+function describeSldElement(
+  sel: SelectedElement,
+  nodes: SldView["nodes"],
+  edges: SldView["edges"],
+): string {
+  if (sel.kind === "node") {
+    const n = nodes.find((x) => x.id === sel.id);
+    if (!n) return "Component";
+    const tag = n.data.tag || n.data.label || sel.id;
+    return `Component · ${tag}`;
+  }
+  const e = edges.find((x) => x.id === sel.id);
+  if (!e) return "Feeder";
+  const src = nodes.find((x) => x.id === e.source);
+  const dst = nodes.find((x) => x.id === e.target);
+  const srcLabel = src?.data.tag || src?.data.label || e.source;
+  const dstLabel = dst?.data.tag || dst?.data.label || e.target;
+  return `${prettyConnType(e.data?.connectionType ?? "lv-power")} · ${srcLabel} → ${dstLabel}`;
+}
+
+function prettyConnType(t: string): string {
+  switch (t) {
+    case "lv-power":
+      return "LV feeder";
+    case "mv-power":
+      return "MV feeder";
+    case "control":
+      return "Control wiring";
+    case "earth":
+      return "Earth / bonding";
+    case "data":
+      return "Data / comms";
+    case "direct":
+      return "Bolted connection";
+    default:
+      return "Feeder";
+  }
 }
 
 function prettyLineType(t: string): string {

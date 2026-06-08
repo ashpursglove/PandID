@@ -54,3 +54,55 @@ body {
 [data-element-id]:hover > .pid-stroke {
   stroke-opacity: 0.8;
 }
+
+/* --- Electrical validation: throbbing fault highlight ---------------------
+ * Applied to SLD nodes / feeders that the validator has flagged. Errors throb
+ * red, warnings throb amber, so the offending part is impossible to miss.
+ */
+@keyframes elecThrobError {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(248, 113, 113, 0.7),
+      0 0 5px 1px rgba(239, 68, 68, 0.45);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(248, 113, 113, 1),
+      0 0 13px 3px rgba(239, 68, 68, 0.85);
+  }
+}
+@keyframes elecThrobWarn {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(251, 191, 36, 0.7),
+      0 0 5px 1px rgba(245, 158, 11, 0.4);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(251, 191, 36, 1),
+      0 0 13px 3px rgba(245, 158, 11, 0.8);
+  }
+}
+.elec-node-throb-error {
+  border-radius: 8px;
+  animation: elecThrobError 1.1s ease-in-out infinite;
+}
+.elec-node-throb-warn {
+  border-radius: 8px;
+  animation: elecThrobWarn 1.1s ease-in-out infinite;
+}
+
+@keyframes elecEdgeThrob {
+  0%,
+  100% {
+    stroke-opacity: 1;
+  }
+  50% {
+    stroke-opacity: 0.2;
+  }
+}
+.elec-edge-throb {
+  animation: elecEdgeThrob 1.1s ease-in-out infinite;
+}

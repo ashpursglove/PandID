@@ -1,6 +1,6 @@
-# Ash's P&ID Playground
+# Ash's MEP Playground
 
-### Because Aveva, Hexagon, AutoCAD, and Aspen can collectively go fuck themselves if they think drawing a centrifugal pump should require a licence server, a VPN and a phone call to a sales rep
+### Because Aveva, Hexagon, AutoCAD, and Aspen can collectively go fuck themselves if they think drawing a centrifugal pump — or a single-line diagram — should require a licence server, a VPN and a phone call to a sales rep
 
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
 [![React](https://img.shields.io/badge/react-18-61DAFB?logo=react&logoColor=white)](https://react.dev)
@@ -187,7 +187,7 @@ After install you get:
 - Start menu shortcut with the proper icon
 - A `.pid` file association so double-clicking a project opens it
 - An uninstaller in Add/Remove Programs
-- An `Ash's PID Playground` folder under `%LOCALAPPDATA%\Programs\`
+- An `Ash's MEP Playground` folder under `%LOCALAPPDATA%\Programs\`
 
 ### Run from source (dev mode)
 
@@ -226,7 +226,7 @@ src-tauri/target/release/
 ├── pandid.exe                                                  ← raw executable, runnable on its own
 └── bundle/
     └── msi/
-        └── Ash's PID Playground_1.0.0_x64_en-US.msi             ← installer, ship this
+        └── Ash's MEP Playground_2.0.0_x64_en-US.msi             ← installer, ship this
 ```
 
 Yes, MSI not NSIS. There's an upstream Tauri bug in the NSIS bundler (`nsis_tauri_utils` macro mismatch in tauri-cli 2.11.x) that makes NSIS bundling fail with a `NSISCOMCALL requires 4 parameter(s), passed 8` error. MSI uses an entirely different bundler (WiX), is unaffected, and is arguably the more professional Windows installer format anyway. To re-enable NSIS later, edit `src-tauri/tauri.conf.json` and put `"nsis"` back into `bundle.targets`.
