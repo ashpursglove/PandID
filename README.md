@@ -192,7 +192,7 @@ After install you get:
 ### Run from source (dev mode)
 
 ```bash
-git clone https://github.com/<you>/PandID.git
+git clone https://github.com/ashpursglove/PandID.git
 cd PandID
 npm install
 npm run tauri dev
