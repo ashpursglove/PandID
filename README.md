@@ -38,6 +38,8 @@ You launch the app. You draw. You save. You export. The end.
 
 v1 drew pipes and solved pumps. v2 grew a whole second discipline and a pile of drafting niceties. The headlines:
 
+<img width="1062" height="577" alt="image" src="https://github.com/user-attachments/assets/2e6d84af-daec-4cc3-b20d-36d037b378b1" />
+
 **A complete electrical discipline.** An entire **Electrical Editor** alongside the P&ID Editor — its own canvas, its own ~83-symbol library (supplies, transformers, breakers, fuses, isolators, contactors, busbars & boards, drives, motors, pumps, loads, metering, earthing, RCDs, switches, life-safety, security, renewables…), its own analysis tab. Build a single-line diagram and the tool generates:
 - a **hierarchical schedule of loads** that walks the board tree (main board → sub-boards → loads) and rolls demand up correctly, even on transformer-fed or source-less systems,
 - a **cable schedule** with per-circuit voltage drop, ampacity and conductor-temperature checks,
