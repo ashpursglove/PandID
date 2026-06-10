@@ -43,6 +43,13 @@ import {
 import { computeNoteBox } from "./annotationLayout";
 import { resolveTagSide, tagSvgCoords } from "./tagPlacement";
 import { buildBom } from "./bom";
+import { buildRoutedPath } from "@/components/shared/edgeRouting";
+import {
+  DEFAULT_ZONE_COLOR,
+  isZoneNode,
+  zoneBoxSize,
+  zoneRgba,
+} from "@/components/shared/zone";
 import { renderSldPageBody } from "@/electrical/io/sldRender";
 import {
   buildCableSchedule,
@@ -702,28 +709,71 @@ function renderRoutePreviewBlock(
   const nodesById = new Map(a.nodes.map((n) => [n.id, n]));
   const innerParts: string[] = [];
 
-  // Edges in world coords (so routing matches the editor exactly).
+  // Zones first (behind everything), matching the editor / Analysis preview.
+  for (const node of a.nodes) {
+    if (!isZoneNode(node)) continue;
+    const { w: zw, h: zh } = zoneBoxSize(node);
+    const color = (node.data.zoneColor as string) || DEFAULT_ZONE_COLOR;
+    const label = (node.data.zoneLabel as string) || "";
+    const chipW = (label ? label.length : 4) * 11 * 0.58 + 14;
+    innerParts.push(
+      `<g transform="translate(${node.position.x} ${node.position.y})">` +
+        `<rect width="${zw}" height="${zh}" rx="6" fill="${zoneRgba(color, 0.06)}" stroke="${color}" stroke-width="1.5" stroke-dasharray="6 4" vector-effect="non-scaling-stroke" />` +
+        (label
+          ? `<rect x="8" y="-11" width="${chipW.toFixed(1)}" height="20" rx="4" fill="${color}" />` +
+            `<text x="15" y="3" font-size="11" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="bold" fill="#0b0f17">${escapeText(label)}</text>`
+          : "") +
+        `</g>`,
+    );
+  }
+
+  // Edges in world coords (so routing — including waypoints — matches the
+  // editor and the live Analysis route preview exactly).
   for (const edge of a.edges) {
     const source = nodesById.get(edge.source);
     const target = nodesById.get(edge.target);
     if (!source || !target) continue;
     const s = portWorldPosition(source, edge.sourceHandle);
     const t = portWorldPosition(target, edge.targetHandle);
-    const [d] = getSmoothStepPath({
-      sourceX: s.x,
-      sourceY: s.y,
-      targetX: t.x,
-      targetY: t.y,
-      sourcePosition: s.position,
-      targetPosition: t.position,
-      borderRadius: 18,
-    });
     const onPath = pathEdgeIds.has(edge.id);
     const stroke = hasPath ? (onPath ? "#f59e0b" : "#94a3b8") : "#0f172a";
+    const opacity = hasPath ? (onPath ? 1 : 0.35) : 0.85;
+
+    // Bolted (direct) join: a junction dot, no routed line.
+    if (edge.data?.direct) {
+      const cx = (s.x + t.x) / 2;
+      const cy = (s.y + t.y) / 2;
+      innerParts.push(
+        `<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="2.4" fill="${stroke}" fill-opacity="${opacity}" />`,
+      );
+      continue;
+    }
+
+    const [d] = buildRoutedPath(
+      {
+        sourceX: s.x,
+        sourceY: s.y,
+        targetX: t.x,
+        targetY: t.y,
+        sourcePosition: s.position,
+        targetPosition: t.position,
+      },
+      edge.data?.waypoints ?? [],
+      18,
+      (args) =>
+        getSmoothStepPath({
+          sourceX: args.sourceX,
+          sourceY: args.sourceY,
+          targetX: args.targetX,
+          targetY: args.targetY,
+          sourcePosition: args.sourcePosition,
+          targetPosition: args.targetPosition,
+          borderRadius: 18,
+        }),
+    );
     // Stroke widths in *output mm* (after the parent scale transform thanks
     // to vector-effect="non-scaling-stroke").
     const sw = hasPath && onPath ? 1.1 : 0.5;
-    const opacity = hasPath ? (onPath ? 1 : 0.35) : 0.85;
     innerParts.push(
       `<path d="${d}" fill="none" stroke="${stroke}" stroke-width="${sw}" stroke-opacity="${opacity}" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round" />`,
     );
@@ -731,6 +781,7 @@ function renderRoutePreviewBlock(
 
   // Nodes in world coords.
   for (const node of a.nodes) {
+    if (isZoneNode(node)) continue;
     const symbol = getSymbol(node.data.symbolType);
     if (!symbol) continue;
     const { Icon, size } = symbol;
@@ -1544,13 +1595,13 @@ function renderBomPageBody(page: DrawingPage, ctx: PageRenderContext): string {
   const tableW = DRAW_W - 12;
   const eqCols = [
     { label: "#", w: tableW * 0.04 },
-    { label: "Tag", w: tableW * 0.1 },
+    { label: "Tags", w: tableW * 0.18 },
     { label: "Description", w: tableW * 0.24 },
     { label: "Category", w: tableW * 0.12 },
     { label: "Size", w: tableW * 0.1 },
     { label: "Material", w: tableW * 0.12 },
     { label: "Qty", w: tableW * 0.05 },
-    { label: "Remarks", w: tableW * 0.23 },
+    { label: "Remarks", w: tableW * 0.15 },
   ];
   cursorY = drawTableHeader(
     lines,
@@ -1562,22 +1613,25 @@ function renderBomPageBody(page: DrawingPage, ctx: PageRenderContext): string {
   );
 
   const eqRowH = 4.4;
+  const eqW = eqCols.map((c) => c.w);
   for (const row of bom.equipment) {
-    cursorY = drawTableRow(
+    // The tag list can be long (grouped identical items), so it wraps over as
+    // many lines as needed — never truncated — and the row grows to fit.
+    cursorY = drawWrappedTableRow(
       lines,
       startX,
       cursorY,
       [
-        String(row.itemNo),
-        row.tag,
-        row.description,
-        row.category,
-        row.size ?? "—",
-        row.material ?? "—",
-        String(row.quantity),
-        row.remarks ?? "",
+        [String(row.itemNo)],
+        packTags(row.tag, eqCols[1].w - 3, 2.6),
+        wrapByWidth(row.description, eqCols[2].w - 3, 2.6),
+        [row.category],
+        [row.size ?? "—"],
+        [row.material ?? "—"],
+        [String(row.quantity)],
+        wrapByWidth(row.remarks ?? "", eqCols[7].w - 3, 2.6),
       ],
-      eqCols.map((c) => c.w),
+      eqW,
       eqRowH,
       row.itemNo % 2 === 0,
     );
@@ -1811,6 +1865,62 @@ function wrapByWidth(text: string, widthMm: number, fontMm: number): string[] {
   return out.length > 0 ? out : [text];
 }
 
+/** Pack a comma-joined tag string into lines, keeping each whole tag intact
+ *  (never splitting "Foot Valve 1" across a line break). */
+function packTags(joined: string, widthMm: number, fontMm: number): string[] {
+  const tags = (joined ?? "").split(",").map((t) => t.trim()).filter(Boolean);
+  if (tags.length === 0) return [""];
+  const charMm = fontMm * 0.55;
+  const maxChars = Math.max(8, Math.floor(widthMm / charMm));
+  const out: string[] = [];
+  let cur = "";
+  tags.forEach((tag, i) => {
+    const piece = i < tags.length - 1 ? `${tag},` : tag;
+    const candidate = cur ? `${cur} ${piece}` : piece;
+    if (candidate.length > maxChars && cur) {
+      out.push(cur);
+      cur = piece;
+    } else {
+      cur = candidate;
+    }
+  });
+  if (cur) out.push(cur);
+  return out.length > 0 ? out : [""];
+}
+
+/**
+ * Like `drawTableRow` but each cell is pre-wrapped into multiple lines. The row
+ * grows to fit the tallest cell, so nothing (e.g. a long grouped tag list) gets
+ * truncated. Cells are top-aligned.
+ */
+function drawWrappedTableRow(
+  lines: string[],
+  x: number,
+  y: number,
+  cells: string[][],
+  widths: number[],
+  minRowH: number,
+  shaded: boolean,
+): number {
+  const lineH = 3.2;
+  const nLines = Math.max(1, ...cells.map((c) => c.length));
+  const rowH = Math.max(minRowH, nLines * lineH + 1.4);
+  const totalW = widths.reduce((a, b) => a + b, 0);
+  if (shaded) {
+    lines.push(
+      `<rect x="${x}" y="${y}" width="${totalW}" height="${rowH.toFixed(2)}" fill="#f1f5f9" />`,
+    );
+  }
+  let cx = x + 1.5;
+  cells.forEach((cell, i) => {
+    cell.forEach((ln, li) => {
+      lines.push(textAt(cx, y + 3.2 + li * lineH, ln, 2.6));
+    });
+    cx += widths[i];
+  });
+  return y + rowH;
+}
+
 function drawTableRow(
   lines: string[],
   x: number,
@@ -1846,13 +1956,17 @@ function truncate(s: string, widthMm: number): string {
 function renderAnnotations(anns: Annotation[]): string {
   if (anns.length === 0) return "";
   const parts: string[] = [];
+  // svg2pdf.js ignores `dominant-baseline="hanging"`, so a hanging-baseline
+  // <text> that looks right in the browser preview gets shoved up by roughly
+  // one ascent in the PDF. We instead bake an explicit alphabetic baseline:
+  // top-of-text + ascent, where ascent ≈ 0.8 × font size for Inter. This makes
+  // the PDF and the on-screen preview line up.
+  const ASCENT = 0.8;
   for (const a of anns) {
     if (a.kind === "text") {
       const fontSize = a.fontSize ?? 4;
-      // Hanging baseline so the text starts AT the click point (top-left),
-      // not above it — keeping the preview and the PDF visually aligned.
       parts.push(
-        `<text x="${a.x}" y="${a.y}" font-size="${fontSize}" font-family="Inter, Helvetica, Arial, sans-serif" fill="#0f172a" dominant-baseline="hanging">${escapeText(a.text ?? "")}</text>`,
+        `<text x="${a.x}" y="${(a.y + fontSize * ASCENT).toFixed(2)}" font-size="${fontSize}" font-family="Inter, Helvetica, Arial, sans-serif" fill="#0f172a">${escapeText(a.text ?? "")}</text>`,
       );
     } else if (a.kind === "note") {
       const fontSize = a.fontSize ?? 3.2;
@@ -1865,7 +1979,7 @@ function renderAnnotations(anns: Annotation[]): string {
       );
       lines.forEach((l, i) => {
         parts.push(
-          `<text x="${a.x + padding}" y="${a.y + padding + i * lineHeight}" font-size="${fontSize}" font-family="Inter, Helvetica, Arial, sans-serif" fill="#0f172a" dominant-baseline="hanging">${escapeText(l)}</text>`,
+          `<text x="${a.x + padding}" y="${(a.y + padding + fontSize * ASCENT + i * lineHeight).toFixed(2)}" font-size="${fontSize}" font-family="Inter, Helvetica, Arial, sans-serif" fill="#0f172a">${escapeText(l)}</text>`,
         );
       });
     } else if (a.kind === "arrow" && a.x2 != null && a.y2 != null) {

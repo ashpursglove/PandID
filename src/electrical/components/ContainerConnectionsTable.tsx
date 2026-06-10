@@ -56,6 +56,7 @@ export function ContainerConnectionsTable({
     <div
       className="nodrag nopan"
       style={{
+        pointerEvents: "auto",
         position: "absolute",
         left: offset.x,
         top: offset.y,

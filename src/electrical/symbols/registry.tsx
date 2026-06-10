@@ -21,6 +21,7 @@ import {
 } from "./icons/transformers";
 import {
   CircuitBreaker,
+  CircuitBreakerSpare,
   Contactor,
   ControlSwitch,
   EmergencyStop,
@@ -32,7 +33,9 @@ import {
   KeySwitch,
   LimitSwitch,
   Mcb,
+  McbSpare,
   Mccb,
+  MccbSpare,
   ProtectionRelay,
   PushButton,
   SelectorSwitch,
@@ -48,8 +51,6 @@ import {
   Heater,
   LightingLoad,
   Motor,
-  Motor1Ph,
-  Motor3Ph,
   SocketLoad,
   VibrationFilter,
 } from "./icons/loads";
@@ -80,6 +81,7 @@ import {
   Hvac,
   JunctionBox,
   Mpcb,
+  MpcbSpare,
   Plc,
   PvArray,
   Rcbo,
@@ -493,6 +495,86 @@ export const ELEC_SYMBOL_REGISTRY: Record<string, ElecSymbolDef> = {
     ],
     defaultParams: { ratedCurrentA: 32, curve: "C", breakingCapacityKA: 10, poles: "1P+N" },
   },
+  "circuit-breaker-spare": {
+    type: "circuit-breaker-spare",
+    category: "protection",
+    subcategory: "Breakers",
+    label: "Circuit breaker (ACB) — spare",
+    description:
+      "Reserved ACB way. No outgoing connection; its rated current is carried upstream so feeders and devices are sized for a future load.",
+    size: { width: 64, height: 64 },
+    ports: PORTS_LOAD,
+    tagPrefix: "Q",
+    Icon: CircuitBreakerSpare,
+    engineModel: "breaker",
+    defaultLabel: "CB (spare)",
+    paramSchema: [
+      { key: "ratedCurrentA", label: "Rated current", kind: "number", unit: "A", default: 630, group: "Ratings" },
+      { key: "poles", label: "Poles", kind: "select", options: ["1P", "2P", "3P", "4P"], default: "3P", group: "Ratings" },
+      { key: "powerFactor", label: "Assumed PF", kind: "number", default: 0.8, min: 0.1, max: 1, step: 0.05, group: "Reserved load" },
+    ],
+    defaultParams: { ratedCurrentA: 630, poles: "3P", powerFactor: 0.8, spare: true },
+  },
+  "mccb-spare": {
+    type: "mccb-spare",
+    category: "protection",
+    subcategory: "Breakers",
+    label: "MCCB — spare",
+    description:
+      "Reserved MCCB way. No outgoing connection; its rated current is carried upstream so feeders and devices are sized for a future load.",
+    size: { width: 64, height: 64 },
+    ports: PORTS_LOAD,
+    tagPrefix: "Q",
+    Icon: MccbSpare,
+    engineModel: "breaker",
+    defaultLabel: "MCCB (spare)",
+    paramSchema: [
+      { key: "ratedCurrentA", label: "Rated current", kind: "number", unit: "A", default: 250, group: "Ratings" },
+      { key: "poles", label: "Poles", kind: "select", options: ["1P", "2P", "3P", "4P"], default: "3P", group: "Ratings" },
+      { key: "powerFactor", label: "Assumed PF", kind: "number", default: 0.8, min: 0.1, max: 1, step: 0.05, group: "Reserved load" },
+    ],
+    defaultParams: { ratedCurrentA: 250, poles: "3P", powerFactor: 0.8, spare: true },
+  },
+  "mcb-spare": {
+    type: "mcb-spare",
+    category: "protection",
+    subcategory: "Breakers",
+    label: "MCB — spare",
+    description:
+      "Reserved MCB way. No outgoing connection; its rated current is carried upstream so feeders and devices are sized for a future load.",
+    size: { width: 64, height: 64 },
+    ports: PORTS_LOAD,
+    tagPrefix: "Q",
+    Icon: McbSpare,
+    engineModel: "breaker",
+    defaultLabel: "MCB (spare)",
+    paramSchema: [
+      { key: "ratedCurrentA", label: "Rated current", kind: "number", unit: "A", default: 32, group: "Ratings" },
+      { key: "poles", label: "Poles", kind: "select", options: ["1P", "1P+N", "3P", "3P+N"], default: "1P+N", group: "Ratings" },
+      { key: "powerFactor", label: "Assumed PF", kind: "number", default: 0.9, min: 0.1, max: 1, step: 0.05, group: "Reserved load" },
+    ],
+    defaultParams: { ratedCurrentA: 32, poles: "1P+N", powerFactor: 0.9, spare: true },
+  },
+  "mpcb-spare": {
+    type: "mpcb-spare",
+    category: "protection",
+    subcategory: "Breakers",
+    label: "MPCB — spare",
+    description:
+      "Reserved MPCB way. No outgoing connection; its rated current is carried upstream so feeders and devices are sized for a future load.",
+    size: { width: 64, height: 64 },
+    ports: PORTS_LOAD,
+    tagPrefix: "Q",
+    Icon: MpcbSpare,
+    engineModel: "breaker",
+    defaultLabel: "MPCB (spare)",
+    paramSchema: [
+      { key: "ratedCurrentA", label: "Rated current", kind: "number", unit: "A", default: 16, group: "Ratings" },
+      { key: "poles", label: "Poles", kind: "select", options: ["1P", "3P"], default: "3P", group: "Ratings" },
+      { key: "powerFactor", label: "Assumed PF", kind: "number", default: 0.85, min: 0.1, max: 1, step: 0.05, group: "Reserved load" },
+    ],
+    defaultParams: { ratedCurrentA: 16, poles: "3P", powerFactor: 0.85, spare: true },
+  },
   fuse: {
     type: "fuse",
     category: "protection",
@@ -777,55 +859,12 @@ export const ELEC_SYMBOL_REGISTRY: Record<string, ElecSymbolDef> = {
     paramSchema: [
       { key: "ratedKW", label: "Rating", kind: "number", unit: "kW", default: 7.5, group: "Ratings" },
       VOLTAGE_FIELD,
+      PHASE_FIELD,
       { key: "efficiencyPct", label: "Efficiency", kind: "number", unit: "%", default: 90, group: "Loading" },
       PF_FIELD,
       { key: "demandFactor", label: "Demand factor", kind: "number", step: 0.05, min: 0, max: 1, default: 1, group: "Loading" },
     ],
-    defaultParams: { ratedKW: 7.5, voltageV: 380, efficiencyPct: 90, powerFactor: 0.85, demandFactor: 1 },
-  },
-  "motor-1ph": {
-    type: "motor-1ph",
-    category: "load",
-    subcategory: "Motors",
-    label: "Single-phase motor",
-    description: "Single-phase induction motor (1~)",
-    size: { width: 64, height: 64 },
-    ports: PORTS_LOAD,
-    tagPrefix: "M",
-    Icon: Motor1Ph,
-    engineModel: "motor",
-    defaultLabel: "M 1~",
-    paramSchema: [
-      { key: "ratedKW", label: "Rating", kind: "number", unit: "kW", default: 1.5, group: "Ratings" },
-      { key: "voltageV", label: "Voltage", kind: "number", unit: "V", default: 230, group: "Ratings" },
-      { key: "phases", label: "Phases", kind: "select", options: ["1", "3"], default: "1", group: "Ratings" },
-      { key: "efficiencyPct", label: "Efficiency", kind: "number", unit: "%", default: 85, group: "Loading" },
-      PF_FIELD,
-      { key: "demandFactor", label: "Demand factor", kind: "number", step: 0.05, min: 0, max: 1, default: 1, group: "Loading" },
-    ],
-    defaultParams: { ratedKW: 1.5, voltageV: 230, phases: "1", efficiencyPct: 85, powerFactor: 0.85, demandFactor: 1 },
-  },
-  "motor-3ph": {
-    type: "motor-3ph",
-    category: "load",
-    subcategory: "Motors",
-    label: "Three-phase motor",
-    description: "Three-phase induction motor (3~)",
-    size: { width: 64, height: 64 },
-    ports: PORTS_LOAD,
-    tagPrefix: "M",
-    Icon: Motor3Ph,
-    engineModel: "motor",
-    defaultLabel: "M 3~",
-    paramSchema: [
-      { key: "ratedKW", label: "Rating", kind: "number", unit: "kW", default: 7.5, group: "Ratings" },
-      { key: "voltageV", label: "Voltage", kind: "number", unit: "V", default: 380, group: "Ratings" },
-      { key: "phases", label: "Phases", kind: "select", options: ["1", "3"], default: "3", group: "Ratings" },
-      { key: "efficiencyPct", label: "Efficiency", kind: "number", unit: "%", default: 91, group: "Loading" },
-      PF_FIELD,
-      { key: "demandFactor", label: "Demand factor", kind: "number", step: 0.05, min: 0, max: 1, default: 1, group: "Loading" },
-    ],
-    defaultParams: { ratedKW: 7.5, voltageV: 380, phases: "3", efficiencyPct: 91, powerFactor: 0.85, demandFactor: 1 },
+    defaultParams: { ratedKW: 7.5, voltageV: 380, phases: "3", efficiencyPct: 90, powerFactor: 0.85, demandFactor: 1 },
   },
 
   /* ===== Pumps ========================================================= */
@@ -844,11 +883,12 @@ export const ELEC_SYMBOL_REGISTRY: Record<string, ElecSymbolDef> = {
     paramSchema: [
       { key: "ratedKW", label: "Motor rating", kind: "number", unit: "kW", default: 5.5, group: "Ratings" },
       VOLTAGE_FIELD,
+      PHASE_FIELD,
       { key: "efficiencyPct", label: "Efficiency", kind: "number", unit: "%", default: 88, group: "Loading" },
       PF_FIELD,
       { key: "demandFactor", label: "Demand factor", kind: "number", step: 0.05, min: 0, max: 1, default: 1, group: "Loading" },
     ],
-    defaultParams: { ratedKW: 5.5, voltageV: 380, efficiencyPct: 88, powerFactor: 0.85, demandFactor: 1 },
+    defaultParams: { ratedKW: 5.5, voltageV: 380, phases: "3", efficiencyPct: 88, powerFactor: 0.85, demandFactor: 1 },
   },
   "pump-sump": {
     type: "pump-sump",
@@ -865,11 +905,12 @@ export const ELEC_SYMBOL_REGISTRY: Record<string, ElecSymbolDef> = {
     paramSchema: [
       { key: "ratedKW", label: "Motor rating", kind: "number", unit: "kW", default: 2.2, group: "Ratings" },
       VOLTAGE_FIELD,
+      PHASE_FIELD,
       { key: "efficiencyPct", label: "Efficiency", kind: "number", unit: "%", default: 84, group: "Loading" },
       PF_FIELD,
       { key: "demandFactor", label: "Demand factor", kind: "number", step: 0.05, min: 0, max: 1, default: 0.6, group: "Loading" },
     ],
-    defaultParams: { ratedKW: 2.2, voltageV: 380, efficiencyPct: 84, powerFactor: 0.8, demandFactor: 0.6 },
+    defaultParams: { ratedKW: 2.2, voltageV: 380, phases: "3", efficiencyPct: 84, powerFactor: 0.8, demandFactor: 0.6 },
   },
   "pump-peristaltic": {
     type: "pump-peristaltic",
@@ -930,11 +971,12 @@ export const ELEC_SYMBOL_REGISTRY: Record<string, ElecSymbolDef> = {
     paramSchema: [
       { key: "ratedKW", label: "Motor rating", kind: "number", unit: "kW", default: 4, group: "Ratings" },
       VOLTAGE_FIELD,
+      PHASE_FIELD,
       { key: "efficiencyPct", label: "Efficiency", kind: "number", unit: "%", default: 86, group: "Loading" },
       PF_FIELD,
       { key: "demandFactor", label: "Demand factor", kind: "number", step: 0.05, min: 0, max: 1, default: 1, group: "Loading" },
     ],
-    defaultParams: { ratedKW: 4, voltageV: 380, efficiencyPct: 86, powerFactor: 0.85, demandFactor: 1 },
+    defaultParams: { ratedKW: 4, voltageV: 380, phases: "3", efficiencyPct: 86, powerFactor: 0.85, demandFactor: 1 },
   },
   "vibration-filter": {
     type: "vibration-filter",
@@ -951,11 +993,12 @@ export const ELEC_SYMBOL_REGISTRY: Record<string, ElecSymbolDef> = {
     paramSchema: [
       { key: "ratedKW", label: "Vibratory motor", kind: "number", unit: "kW", default: 1.1, group: "Ratings" },
       VOLTAGE_FIELD,
+      PHASE_FIELD,
       { key: "efficiencyPct", label: "Efficiency", kind: "number", unit: "%", default: 80, group: "Loading" },
       PF_FIELD,
       { key: "demandFactor", label: "Demand factor", kind: "number", step: 0.05, min: 0, max: 1, default: 0.8, group: "Loading" },
     ],
-    defaultParams: { ratedKW: 1.1, voltageV: 380, efficiencyPct: 80, powerFactor: 0.8, demandFactor: 0.8 },
+    defaultParams: { ratedKW: 1.1, voltageV: 380, phases: "3", efficiencyPct: 80, powerFactor: 0.8, demandFactor: 0.8 },
   },
   "lighting-load": {
     type: "lighting-load",
@@ -1547,10 +1590,11 @@ export const ELEC_SYMBOL_REGISTRY: Record<string, ElecSymbolDef> = {
     paramSchema: [
       { key: "ratedKW", label: "Rating", kind: "number", unit: "kW", default: 2.2, group: "Ratings" },
       VOLTAGE_FIELD,
+      PHASE_FIELD,
       { key: "efficiencyPct", label: "Efficiency", kind: "number", unit: "%", default: 88, group: "Loading" },
       PF_FIELD,
     ],
-    defaultParams: { ratedKW: 2.2, voltageV: 380, efficiencyPct: 88, powerFactor: 0.82 },
+    defaultParams: { ratedKW: 2.2, voltageV: 380, phases: "3", efficiencyPct: 88, powerFactor: 0.82 },
   },
   "water-heater": {
     type: "water-heater",
@@ -1764,10 +1808,11 @@ export const ELEC_SYMBOL_REGISTRY: Record<string, ElecSymbolDef> = {
     paramSchema: [
       { key: "ratedKW", label: "Rating", kind: "number", unit: "kW", default: 7.5, group: "Ratings" },
       VOLTAGE_FIELD,
+      PHASE_FIELD,
       { key: "efficiencyPct", label: "Efficiency", kind: "number", unit: "%", default: 90, group: "Loading" },
       PF_FIELD,
     ],
-    defaultParams: { ratedKW: 7.5, voltageV: 380, efficiencyPct: 90, powerFactor: 0.85 },
+    defaultParams: { ratedKW: 7.5, voltageV: 380, phases: "3", efficiencyPct: 90, powerFactor: 0.85 },
   },
   "circulation-pump": {
     type: "circulation-pump",
@@ -1784,10 +1829,11 @@ export const ELEC_SYMBOL_REGISTRY: Record<string, ElecSymbolDef> = {
     paramSchema: [
       { key: "ratedKW", label: "Rating", kind: "number", unit: "kW", default: 5.5, group: "Ratings" },
       VOLTAGE_FIELD,
+      PHASE_FIELD,
       { key: "efficiencyPct", label: "Efficiency", kind: "number", unit: "%", default: 89, group: "Loading" },
       PF_FIELD,
     ],
-    defaultParams: { ratedKW: 5.5, voltageV: 380, efficiencyPct: 89, powerFactor: 0.85 },
+    defaultParams: { ratedKW: 5.5, voltageV: 380, phases: "3", efficiencyPct: 89, powerFactor: 0.85 },
   },
   paddlewheel: {
     type: "paddlewheel",
@@ -1929,8 +1975,24 @@ for (const sym of Object.values(ELEC_SYMBOL_REGISTRY)) {
 
 /* --------------------------- registry helpers --------------------------- */
 
+/**
+ * Legacy type aliases. The single/three-phase motor, fan and pump variants were
+ * merged into one component each with a phase dropdown, so diagrams saved with
+ * the old split types still resolve (their stored params carry the phase). New
+ * placements only ever use the consolidated keys.
+ */
+const ELEC_TYPE_ALIASES: Record<string, string> = {
+  "motor-1ph": "motor",
+  "motor-3ph": "motor",
+  "fan-1ph": "fan",
+  "pump-centrifugal-1ph": "pump-centrifugal",
+};
+
 export function getElecSymbol(type: string): ElecSymbolDef | undefined {
-  return ELEC_SYMBOL_REGISTRY[type];
+  return (
+    ELEC_SYMBOL_REGISTRY[type] ??
+    ELEC_SYMBOL_REGISTRY[ELEC_TYPE_ALIASES[type] ?? ""]
+  );
 }
 
 /**
@@ -2070,7 +2132,7 @@ export const ELEC_SYMBOL_HELP: Record<string, string> = {
   "ev-charger":
     "An electric-vehicle charge point. A continuous, often three-phase load that needs careful diversity and cable sizing.",
   hvac: "Heating, Ventilation & Air-Conditioning plant / Air-Handling Unit — a sizeable motor-driven load serving building climate control.",
-  fan: "A ventilation or extract fan motor — a motor load whose full-load current is set by its kW, efficiency and power factor.",
+  fan: "A ventilation or extract fan motor — a motor load whose full-load current is set by its kW, efficiency and power factor. Set Phases to 1 for a small single-phase fan.",
   "water-heater": "An immersion heater / water heating element — a resistive load, usually at unity power factor.",
   "emergency-light":
     "A battery-backed emergency luminaire that stays lit on supply failure to mark escape routes. Small connected load.",

@@ -88,6 +88,9 @@ export interface ElecSymbolIconProps {
   width: number;
   height: number;
   selected?: boolean;
+  /** Override glyph colour (e.g. green for single-phase). Wins over the
+   *  selected/idle class so phase colouring shows in editor and drawings. */
+  color?: string;
 }
 
 export interface ElecSymbolDef {

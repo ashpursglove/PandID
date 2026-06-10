@@ -16,6 +16,7 @@ import { resolveTagSide, tagEditorStyle } from "@/io/tagPlacement";
 import type { PortSide } from "@/types/diagram";
 import { useElectricalStore, type ElecNode } from "@/electrical/store/electricalStore";
 import { isBoltedChild } from "@/electrical/analysis/boltTable";
+import { nodePhase, PHASE1_EDITOR } from "@/electrical/symbols/phase";
 import { useNodeIssue } from "./issuesContext";
 import { ContainerConnectionsTable } from "./ContainerConnectionsTable";
 import { cn } from "@/lib/utils";
@@ -84,11 +85,22 @@ export const ElectricalSymbolNode = memo(function ElectricalSymbolNode({
   const tagSide = resolveTagSide(ports, rotation);
   const isContainer =
     symbol.engineModel === "board" || symbol.engineModel === "busbar";
+  // Single-phase components read green; three-phase keeps the default zinc.
+  // Suppressed while selected so the sky selection highlight still shows.
+  const phaseColor =
+    !selected && nodePhase({ data }) === 1 ? PHASE1_EDITOR : undefined;
+
+  // Clickable hit area. Containers stay fully clickable; inline devices use a
+  // centred core so neighbours bolted right next to them (taps on a board) don't
+  // cover them — the node-wrapper itself is pointer-events:none (see index.css),
+  // so only this area, the handles and the table capture clicks.
+  const hitW = isContainer ? size.width : Math.min(size.width, 40);
+  const hitH = isContainer ? size.height : Math.min(size.height, 48);
 
   return (
     <div
       className={cn(
-        "group relative",
+        "group pointer-events-none relative",
         selected && "drop-shadow-[0_0_6px_rgba(125,211,252,0.6)]",
         issue === "error" && "elec-node-throb-error",
         issue === "warning" && "elec-node-throb-warn",
@@ -104,7 +116,21 @@ export const ElectricalSymbolNode = memo(function ElectricalSymbolNode({
           transformOrigin: "center center",
         }}
       >
-        <Icon width={size.width} height={size.height} selected={selected} />
+        <Icon
+          width={size.width}
+          height={size.height}
+          selected={selected}
+          color={phaseColor}
+        />
+        <div
+          className="elec-node-hit pointer-events-auto absolute"
+          style={{
+            left: (size.width - hitW) / 2,
+            top: (size.height - hitH) / 2,
+            width: hitW,
+            height: hitH,
+          }}
+        />
       </div>
 
       {ports.map((port) => {
@@ -115,6 +141,7 @@ export const ElectricalSymbolNode = memo(function ElectricalSymbolNode({
             id={port.id}
             type="source"
             position={SIDE_TO_POSITION[r.side]}
+            className="pointer-events-auto"
             style={{
               ...handleOffset(r.side, r.position, size.width, size.height),
               width: 8,

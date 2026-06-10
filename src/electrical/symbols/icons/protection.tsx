@@ -1,5 +1,5 @@
 import type { ElecSymbolIconProps } from "@/electrical/types";
-import { ElecSvg, StubBottom, StubTop } from "./base";
+import { ElecSvg, SpareCaption, StubBottom, StubTop } from "./base";
 
 /** Cross-contact breaker glyph centred at (cx, cy). */
 function Cross({ cx, cy, r }: { cx: number; cy: number; r: number }) {
@@ -43,6 +43,44 @@ export function Mcb(p: ElecSymbolIconProps) {
       <line x1={32} y1={20} x2={42} y2={36} />
       <rect x={26} y={38} width={12} height={8} rx={1} />
       <line x1={32} y1={46} x2={32} y2={62} />
+    </ElecSvg>
+  );
+}
+
+/* ----------------------------- spare variants --------------------------- */
+/* Reserved ways: line-side stub only, no load-side connection. The rated
+ * current is carried upstream so feeders and devices are sized for the future
+ * load. */
+
+export function CircuitBreakerSpare(p: ElecSymbolIconProps) {
+  return (
+    <ElecSvg {...p}>
+      <StubTop />
+      <Cross cx={32} cy={30} r={7} />
+      <SpareCaption />
+    </ElecSvg>
+  );
+}
+
+export function MccbSpare(p: ElecSymbolIconProps) {
+  return (
+    <ElecSvg {...p}>
+      <StubTop />
+      <rect x={20} y={18} width={24} height={22} rx={2} />
+      <Cross cx={32} cy={29} r={6} />
+      <SpareCaption />
+    </ElecSvg>
+  );
+}
+
+export function McbSpare(p: ElecSymbolIconProps) {
+  return (
+    <ElecSvg {...p}>
+      <StubTop />
+      <circle cx={32} cy={20} r={1.6} fill="currentColor" />
+      <line x1={32} y1={20} x2={42} y2={34} />
+      <rect x={26} y={36} width={12} height={8} rx={1} />
+      <SpareCaption />
     </ElecSvg>
   );
 }

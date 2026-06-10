@@ -1,6 +1,6 @@
 [package]
 name = "pandid"
-version = "2.0.0"
+version = "2.1.0"
 description = "Ash's MEP Playground — local P&ID and electrical design, drafting and analysis tool"
 authors = ["you"]
 edition = "2021"

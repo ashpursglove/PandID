@@ -99,6 +99,7 @@ function NodeForm({ nodeId }: { nodeId: string }) {
   const node = useDiagramStore((s) => s.nodes.find((n) => n.id === nodeId));
   const edges = useDiagramStore((s) => s.edges);
   const updateNodeData = useDiagramStore((s) => s.updateNodeData);
+  const unboltNode = useDiagramStore((s) => s.unboltNode);
 
   if (!node) return null;
 
@@ -126,6 +127,9 @@ function NodeForm({ nodeId }: { nodeId: string }) {
   const effective = symbol.hydraulics
     ? describeEffectiveHydraulics(node, edges)
     : null;
+  const boltCount = edges.filter(
+    (e) => e.data?.direct && (e.source === nodeId || e.target === nodeId),
+  ).length;
 
   return (
     <>
@@ -187,6 +191,24 @@ function NodeForm({ nodeId }: { nodeId: string }) {
       )}
 
       {effective && <EffectiveHydraulicsHint info={effective} />}
+
+      {boltCount > 0 && (
+        <Section title="Bolted joint">
+          <p className="px-1 text-[11px] leading-snug text-zinc-500">
+            This part is bolted directly to{" "}
+            {boltCount === 1 ? "another component" : `${boltCount} components`}{" "}
+            (no pipe between them). Separating moves it clear so you can re-route
+            or re-connect it.
+          </p>
+          <button
+            type="button"
+            onClick={() => unboltNode(nodeId)}
+            className="self-start rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-300 hover:border-amber-500 hover:text-amber-300"
+          >
+            Separate bolted joint{boltCount > 1 ? "s" : ""}
+          </button>
+        </Section>
+      )}
     </>
   );
 }

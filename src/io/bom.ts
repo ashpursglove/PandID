@@ -68,17 +68,24 @@ export function buildBom(
 }
 
 function buildEquipmentRows(nodes: DiagramNode[]): EquipmentBomRow[] {
-  // Deduplicate within a tag — if the user used the same tag twice we still
-  // list it once and bump the quantity.
-  const byKey = new Map<string, EquipmentBomRow>();
+  // Group identical items so procurement sees one line per part. "Identical"
+  // means same symbol type, size, material AND spec (remarks) — a DN50 PVC gate
+  // valve and a DN80 steel one stay on separate lines, but ten matching DN50
+  // valves collapse into a single "10 ×" row. The individual tags are collected
+  // so the user can still see exactly which instances make up the count.
+  const byKey = new Map<
+    string,
+    EquipmentBomRow & { tags: string[] }
+  >();
   let itemNo = 0;
   for (const n of nodes) {
     if (!includeInReports(n.data)) continue;
     const symbol = getSymbol(n.data.symbolType);
     if (!symbol) continue;
     // Skip pure visual "connector" symbols (tap points, off-page connectors…)
-    // since they don't represent purchaseable equipment.
-    if (symbol.category === "connector") continue;
+    // since they don't represent purchaseable equipment — but keep connectors
+    // explicitly flagged as real items (e.g. a pipe tee).
+    if (symbol.category === "connector" && !symbol.countInBom) continue;
     const tag = (n.data.tag as string | undefined) ?? n.id;
     const params = (n.data.params ?? {}) as Record<string, unknown>;
     const description = symbol.label;
@@ -86,16 +93,18 @@ function buildEquipmentRows(nodes: DiagramNode[]): EquipmentBomRow[] {
     const size = formatSize(symbol.type, params);
     const material = formatMaterial(params);
     const remarks = formatRemarks(symbol.type, params);
-    const key = `${symbol.type}::${tag}::${size ?? ""}::${material ?? ""}`;
+    const key = `${symbol.type}::${size ?? ""}::${material ?? ""}::${remarks ?? ""}`;
     const existing = byKey.get(key);
     if (existing) {
       existing.quantity += 1;
+      existing.tags.push(tag);
     } else {
       itemNo += 1;
       byKey.set(key, {
         id: key,
         itemNo,
         tag,
+        tags: [tag],
         description,
         category,
         size,
@@ -105,7 +114,11 @@ function buildEquipmentRows(nodes: DiagramNode[]): EquipmentBomRow[] {
       });
     }
   }
-  return [...byKey.values()];
+  // Collapse the collected tags into the visible `tag` field once per group.
+  return [...byKey.values()].map(({ tags, ...row }) => ({
+    ...row,
+    tag: tags.join(", "),
+  }));
 }
 
 function pipeSpecLabels(pipe: NonNullable<DiagramEdge["data"]>["pipe"]): {
@@ -131,6 +144,9 @@ function buildPipeRows(edges: DiagramEdge[]): PipeBomRow[] {
   let itemNo = 0;
   for (const e of edges) {
     if (!includeInReports(e.data)) continue;
+    // Bolted (direct, no-pipe) joins carry no pipe — skip them so they don't
+    // show up as phantom "Unspecified, 0 m" process pipes.
+    if (e.data?.direct) continue;
     const lineType = e.data?.lineType ?? "process";
     if (lineType !== "process") continue; // utility / electrical aren't pipe BOM
     const pipe = e.data?.pipe ?? {};
@@ -163,6 +179,7 @@ function buildFittingRows(edges: DiagramEdge[]): FittingBomRow[] {
   let itemNo = 0;
   for (const e of edges) {
     if (!includeInReports(e.data)) continue;
+    if (e.data?.direct) continue;
     const lineType = e.data?.lineType ?? "process";
     if (lineType !== "process") continue;
     const pipe = e.data?.pipe ?? {};

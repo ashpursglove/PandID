@@ -7,6 +7,8 @@ import { extractPath, NoPathError } from "@/engine/path";
 import { toEngineGraph } from "@/engine/adapter";
 import { diagramBounds, portWorldPosition } from "@/io/geometry";
 import { resolveTagSide, tagLocalCoords } from "@/io/tagPlacement";
+import { buildRoutedPath, type RouteArgs } from "@/components/shared/edgeRouting";
+import { isZoneNode, zoneBoxSize, zoneRgba, DEFAULT_ZONE_COLOR } from "@/components/shared/zone";
 import type { DiagramEdge, DiagramNode } from "@/store/diagramStore";
 
 interface RoutePreviewProps {
@@ -14,9 +16,12 @@ interface RoutePreviewProps {
   edges: DiagramEdge[];
   startId?: string;
   endId?: string;
+  /** Called when the user clicks a component in the preview to pick it as the
+   *  From/To endpoint. */
+  onPickNode?: (id: string) => void;
 }
 
-const PREVIEW_HEIGHT_PX = 208; // matches Tailwind's h-52
+const PREVIEW_HEIGHT_PX = 380;
 
 /**
  * Read-only snapshot of the P&ID rendered as a single SVG. The route between
@@ -31,6 +36,7 @@ export function RoutePreview({
   edges,
   startId,
   endId,
+  onPickNode,
 }: RoutePreviewProps) {
   const { pathNodeIds, pathEdgeIds, hasPath, pathError } = useMemo(() => {
     const empty = {
@@ -99,7 +105,7 @@ export function RoutePreview({
               {pathError ?? "No path found."}
             </span>
           ) : (
-            <span>Pick a From and To to see the route.</span>
+            <span>Click two components below (or use the lists) to set From → To.</span>
           )}
         </p>
       </header>
@@ -154,6 +160,12 @@ export function RoutePreview({
             />
 
             <g>
+              {nodes.filter(isZoneNode).map((z) => (
+                <PreviewZone key={z.id} node={z} />
+              ))}
+            </g>
+
+            <g>
               {edges.map((e) => (
                 <PreviewEdge
                   key={e.id}
@@ -173,6 +185,7 @@ export function RoutePreview({
                   hasPath={hasPath}
                   onPath={pathNodeIds.has(n.id)}
                   isEndpoint={n.id === startId || n.id === endId}
+                  onPick={onPickNode}
                 />
               ))}
             </g>
@@ -203,15 +216,45 @@ function PreviewEdge({
   const s = portWorldPosition(source, edge.sourceHandle);
   const t = portWorldPosition(target, edge.targetHandle);
 
-  const [path] = getSmoothStepPath({
+  // Bolted (direct) join: no pipe, just a junction dot — same as the editor.
+  if (edge.data?.direct) {
+    return (
+      <circle
+        cx={(s.x + t.x) / 2}
+        cy={(s.y + t.y) / 2}
+        r={4}
+        fill={hasPath ? (onPath ? "#fbbf24" : "#52525b") : "#cbd5e1"}
+        opacity={hasPath ? (onPath ? 1 : 0.4) : 0.8}
+      />
+    );
+  }
+
+  // Follow the same waypoint-aware routing the live editor uses so the preview
+  // traces the exact shape the user arranged (kinks and all), not a fresh
+  // smooth-step guess.
+  const routeArgs: RouteArgs = {
     sourceX: s.x,
     sourceY: s.y,
     targetX: t.x,
     targetY: t.y,
     sourcePosition: s.position,
     targetPosition: t.position,
-    borderRadius: 18,
-  });
+  };
+  const [path] = buildRoutedPath(
+    routeArgs,
+    edge.data?.waypoints ?? [],
+    18,
+    (a) =>
+      getSmoothStepPath({
+        sourceX: a.sourceX,
+        sourceY: a.sourceY,
+        targetX: a.targetX,
+        targetY: a.targetY,
+        sourcePosition: a.sourcePosition,
+        targetPosition: a.targetPosition,
+        borderRadius: 18,
+      }),
+  );
 
   const lineType = edge.data?.lineType ?? "process";
   const baseStyle = LINE_STYLES[lineType];
@@ -249,17 +292,53 @@ function PreviewEdge({
   );
 }
 
+function PreviewZone({ node }: { node: DiagramNode }) {
+  const { w, h } = zoneBoxSize(node);
+  const color = (node.data.zoneColor as string) || DEFAULT_ZONE_COLOR;
+  const label = (node.data.zoneLabel as string) || "";
+  const text = label || "Area";
+  // Colour chip on the top edge, mirroring the editor's zone label tab.
+  const chipW = text.length * 11 * 0.58 + 14;
+  return (
+    <g transform={`translate(${node.position.x}, ${node.position.y})`}>
+      <rect
+        width={w}
+        height={h}
+        rx={6}
+        fill={zoneRgba(color, 0.06)}
+        stroke={color}
+        strokeWidth={1.5}
+        strokeDasharray="6 4"
+      />
+      <rect x={8} y={-11} width={chipW} height={20} rx={4} fill={color} />
+      <text
+        x={8 + 7}
+        y={3}
+        fontSize={11}
+        fontFamily="Inter, Helvetica, Arial, sans-serif"
+        fontWeight={600}
+        fill="#0b0f17"
+      >
+        {text}
+      </text>
+    </g>
+  );
+}
+
 function PreviewNode({
   node,
   hasPath,
   onPath,
   isEndpoint,
+  onPick,
 }: {
   node: DiagramNode;
   hasPath: boolean;
   onPath: boolean;
   isEndpoint: boolean;
+  onPick?: (id: string) => void;
 }) {
+  if (isZoneNode(node)) return null;
   const symbol = getSymbol(node.data.symbolType);
   if (!symbol) return null;
   const { Icon, size } = symbol;
@@ -275,7 +354,19 @@ function PreviewNode({
     <g
       transform={`translate(${node.position.x}, ${node.position.y})`}
       opacity={opacity}
+      onClick={onPick ? () => onPick(node.id) : undefined}
+      style={onPick ? { cursor: "pointer" } : undefined}
     >
+      {/* Transparent hit pad so clicking near the symbol still picks it. */}
+      {onPick && (
+        <rect
+          x={-6}
+          y={-6}
+          width={size.width + 12}
+          height={size.height + 12}
+          fill="transparent"
+        />
+      )}
       <g
         transform={
           rotation

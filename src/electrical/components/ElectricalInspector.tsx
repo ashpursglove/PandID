@@ -61,6 +61,8 @@ function NodeForm({ nodeId }: { nodeId: string }) {
   const n = useElectricalStore((s) => s.nodes.find((x) => x.id === nodeId));
   const updateNodeData = useElectricalStore((s) => s.updateNodeData);
   const rotateSelected = useElectricalStore((s) => s.rotateSelected);
+  const edges = useElectricalStore((s) => s.edges);
+  const unboltNode = useElectricalStore((s) => s.unboltNode);
   if (!n) return null;
 
   if (isZoneNode(n)) {
@@ -81,6 +83,11 @@ function NodeForm({ nodeId }: { nodeId: string }) {
     updateNodeData(nodeId, { params: { ...params, [key]: value } });
 
   const groups = groupSchema(symbol?.paramSchema ?? []);
+  const boltCount = edges.filter(
+    (e) =>
+      (e.data?.connectionType ?? "lv-power") === "direct" &&
+      (e.source === nodeId || e.target === nodeId),
+  ).length;
 
   return (
     <div className="flex flex-col gap-3">
@@ -155,6 +162,27 @@ function NodeForm({ nodeId }: { nodeId: string }) {
           ))}
         </fieldset>
       ))}
+
+      {boltCount > 0 && (
+        <div className="flex flex-col gap-2 border-t border-zinc-800 pt-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            Bolted joint
+          </span>
+          <p className="text-[11px] leading-snug text-zinc-500">
+            This part is bolted directly to{" "}
+            {boltCount === 1 ? "another component" : `${boltCount} components`}{" "}
+            (no cable between them). Separating moves it clear so you can
+            re-route or re-connect it.
+          </p>
+          <button
+            type="button"
+            onClick={() => unboltNode(nodeId)}
+            className="self-start rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-[11px] text-zinc-300 hover:border-amber-500 hover:text-amber-300"
+          >
+            Separate bolted joint{boltCount > 1 ? "s" : ""}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

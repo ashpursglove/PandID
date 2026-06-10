@@ -53,6 +53,13 @@ function isLoad(node: ElecNode): boolean {
   return m === "load" || m === "motor";
 }
 
+/** Spare (reserved) breaker — its rating is set deliberately and must never be
+ *  auto-changed, since it defines the future load the rest of the system is
+ *  sized for. */
+function isSpare(node: ElecNode): boolean {
+  return (node.data.params as Record<string, unknown> | undefined)?.spare === true;
+}
+
 function loadPhases(node: ElecNode): 1 | 3 {
   const p = String(
     (node.data.params as Record<string, unknown> | undefined)?.phases ?? "3",
@@ -205,6 +212,10 @@ export function autoSizeCables(
     considered += 1;
 
     let c: Cable = { ...(e.data?.cable ?? {}) };
+    // Auto Size only touches conductor size / phasing — never the route length.
+    // Capture it up front and restore at the end so an already-entered length
+    // survives the phase-reduction preset swap.
+    const originalLength = e.data?.cable?.lengthM;
     let changed = false;
 
     // 1. Phase reduction (only known three-phase presets feeding no 3φ load).
@@ -243,6 +254,7 @@ export function autoSizeCables(
     }
 
     if (!changed) return e;
+    if (originalLength != null) c.lengthM = originalLength;
     return { ...e, data: { ...(e.data ?? {}), cable: c } };
   });
 
@@ -261,6 +273,9 @@ export function autoSizeCables(
   let devicesResized = 0;
   const newNodes = nodes.map((n) => {
     if (model(n) !== "breaker") return n;
+    // Never re-rate a spare way — its amperage is fixed by the user as the
+    // reserved future load that everything upstream is sized against.
+    if (isSpare(n)) return n;
     let through = 0;
     for (const eid of incident.get(n.id) ?? []) {
       through = Math.max(through, currents.get(eid) ?? 0);

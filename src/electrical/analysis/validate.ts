@@ -44,6 +44,18 @@ function isLoad(node: ElecNode): boolean {
   return m === "load" || m === "motor";
 }
 
+/** A spare (reserved) breaker — fed but with no outgoing connection. Its rated
+ *  current is treated as a phantom load so upstream feeders and devices get
+ *  sized for the future load it represents. */
+function isSpare(node: ElecNode): boolean {
+  return param(node, "spare") === true;
+}
+
+/** Phantom load current (A) for a spare way: simply its rated current. */
+function spareLoadCurrent(node: ElecNode): number {
+  return num(param(node, "ratedCurrentA"));
+}
+
 function nodeLabel(node: ElecNode): string {
   const sym = getElecSymbol(node.data.symbolType);
   return (
@@ -137,7 +149,16 @@ export function edgeCurrents(
 
   const edgeById = new Map(edges.map((e) => [e.id, e]));
   const nodeCurrent = new Map<string, number>();
-  for (const n of nodes) nodeCurrent.set(n.id, isLoad(n) ? loadFullLoadCurrent(n) : 0);
+  for (const n of nodes) {
+    nodeCurrent.set(
+      n.id,
+      isLoad(n)
+        ? loadFullLoadCurrent(n)
+        : isSpare(n)
+          ? spareLoadCurrent(n)
+          : 0,
+    );
+  }
 
   const edgeCurrent = new Map<string, number>();
   // Process deepest-first so children are summed before their parents.
@@ -270,6 +291,10 @@ export function validateElectrical(
   }
   for (const n of nodes) {
     if (model(n) !== "breaker") continue;
+    // A spare way is intentionally rated at (or above) its own phantom load, so
+    // it would always read "at capacity" — skip checking it against itself. It
+    // still loads everything upstream of it.
+    if (isSpare(n)) continue;
     let through = 0;
     for (const eid of incidentEdges.get(n.id) ?? []) {
       through = Math.max(through, currents.get(eid) ?? 0);
@@ -312,12 +337,12 @@ export function validateElectrical(
   if (hasSource) {
     const reach = reachableFromSources(nodes, edges);
     for (const n of nodes) {
-      if (isLoad(n) && !reach.has(n.id)) {
+      if ((isLoad(n) || isSpare(n)) && !reach.has(n.id)) {
         issues.push({
           id: `load-unsupplied-${n.id}`,
           severity: "warning",
-          title: `Load not supplied (${nodeLabel(n)})`,
-          detail: `${nodeLabel(n)} isn't connected back to any supply source. Wire it to a board or source so it's actually fed.`,
+          title: `${isSpare(n) ? "Spare" : "Load"} not supplied (${nodeLabel(n)})`,
+          detail: `${nodeLabel(n)} isn't connected back to any supply source. Wire it to a board or source so it's ${isSpare(n) ? "counted in the upstream sizing" : "actually fed"}.`,
           nodeIds: [n.id],
           edgeIds: [],
         });

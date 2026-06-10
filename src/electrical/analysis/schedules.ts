@@ -48,6 +48,16 @@ function isLoad(node: ElecNode): boolean {
   return m === "load" || m === "motor";
 }
 
+/** Spare (reserved) breaker — its rated current stands in as a future load. */
+function isSpare(node: ElecNode): boolean {
+  return param(node, "spare") === true;
+}
+
+/** Single ("1") vs three ("3") phase from a protective device's pole count. */
+function phasesFromPoles(poles: unknown): "1" | "3" {
+  return /[34]/.test(String(poles ?? "3")) ? "3" : "1";
+}
+
 /* ----------------------------- load schedule ---------------------------- */
 
 export interface LoadRow {
@@ -99,6 +109,30 @@ export interface LoadScheduleResult {
 }
 
 function loadRow(node: ElecNode, boardVoltage: number): LoadRow {
+  // Spare ways carry no kW rating — their reserved current is the rated current,
+  // converted to an equivalent kVA/kW at the board voltage and assumed PF.
+  if (isSpare(node)) {
+    const phases = phasesFromPoles(param(node, "poles"));
+    const v = num(param(node, "voltageV"), boardVoltage || 380) || 380;
+    const ratedA = num(param(node, "ratedCurrentA"));
+    const pf = num(param(node, "powerFactor"), 0.8) || 0.8;
+    const demandKVA =
+      phases === "1" ? (v * ratedA) / 1000 : (SQRT3 * v * ratedA) / 1000;
+    const demandKW = demandKVA * pf;
+    return {
+      tag: nodeLabel(node),
+      description: `${getElecSymbol(node.data.symbolType)?.label ?? "Spare"} (reserved)`,
+      phases,
+      voltageV: v,
+      connectedKW: demandKW,
+      demandFactor: 1,
+      demandKW,
+      powerFactor: pf,
+      demandKVA,
+      fullLoadCurrentA: ratedA,
+    };
+  }
+
   const phases = String(param(node, "phases") ?? "3");
   const voltageV = num(param(node, "voltageV"), boardVoltage || 380);
   const connectedKW = num(param(node, "ratedKW"));
@@ -184,25 +218,37 @@ export function buildLoadSchedule(
     }
   }
 
-  const boards = nodes.filter(
+  const allBoards = nodes.filter(
     (n) => engineModel(n) === "board" || engineModel(n) === "busbar",
   );
-  const sources = nodes.filter((n) => engineModel(n) === "source");
+  // A board switched out of "Include in BOM & schedules" is treated as
+  // *transparent*: it gets no section of its own and its loads roll up to the
+  // nearest reported board upstream (just like a pass-through device). Only
+  // reported boards are scheduled and form the hierarchy.
+  const boards = allBoards.filter((b) => includeInReports(b.data));
+  const reportedBoardIds = new Set(boards.map((b) => b.id));
+  // Supply origins seed the hierarchy orientation. A transformer counts as an
+  // origin too, so a system fed straight from a transformer (with no separate
+  // utility-incomer / generator "source" node) still orients correctly — the
+  // board nearest the supply becomes the top of the tree.
+  const supplyOrigins = nodes.filter(
+    (n) => engineModel(n) === "source" || engineModel(n) === "transformer",
+  );
 
-  // Distance of every node from the nearest source, so we can orient the
-  // board-to-board hierarchy (parent = adjacent board closer to a source).
-  const sourceDist = new Map<string, number>();
+  // Distance of every node from the nearest supply origin, used to pick the
+  // root of each board hierarchy (parent = adjacent board closer to a supply).
+  const supplyDist = new Map<string, number>();
   {
     const queue: Array<[string, number]> = [];
-    for (const s of sources) {
-      sourceDist.set(s.id, 0);
+    for (const s of supplyOrigins) {
+      supplyDist.set(s.id, 0);
       queue.push([s.id, 0]);
     }
     while (queue.length > 0) {
       const [id, d] = queue.shift()!;
       for (const next of adj.get(id) ?? []) {
-        if (!sourceDist.has(next)) {
-          sourceDist.set(next, d + 1);
+        if (!supplyDist.has(next)) {
+          supplyDist.set(next, d + 1);
           queue.push([next, d + 1]);
         }
       }
@@ -227,19 +273,21 @@ export function buildLoadSchedule(
       seen.add(id);
       const node = byId.get(id);
       if (!node) continue;
-      if (isLoad(node)) {
+      if (isLoad(node) || isSpare(node)) {
         if (includeInReports(node.data)) {
           loads.push(node);
           assigned.add(node.id);
         }
-        continue; // loads are leaves
+        continue; // loads (and spare ways) are leaves
       }
       const m = engineModel(node);
-      if (m === "board" || m === "busbar") {
-        neighbours.add(id); // adjacent board — record but don't cross
+      if ((m === "board" || m === "busbar") && reportedBoardIds.has(id)) {
+        neighbours.add(id); // adjacent reported board — record but don't cross
         continue;
       }
       if (m === "source") continue; // don't cross back through the source
+      // Excluded boards fall through to the pass-through walk below so their
+      // loads roll up to the nearest reported board.
       // pass-through device: keep walking downstream
       for (const next of adj.get(id) ?? []) {
         if (!seen.has(next)) queue.push(next);
@@ -249,26 +297,46 @@ export function buildLoadSchedule(
     adjacentBoards.set(board.id, neighbours);
   }
 
-  // Orient adjacency into a parent/child tree using source distance.
+  // Orient the boards into a parent/child forest by walking a spanning tree of
+  // the board-adjacency graph. The root of each connected group is the board
+  // nearest a supply (lowest supplyDist); ties fall back to the busiest board
+  // then its label. This works even with no source/transformer at all (every
+  // board still lands in the tree), so a board that only distributes to
+  // sub-boards is never dropped from the schedule.
+  const supplyRank = (id: string) => supplyDist.get(id) ?? Infinity;
+  const boardNeighbourCount = (id: string) => adjacentBoards.get(id)?.size ?? 0;
+  const directLoadCount = (id: string) => directLoads.get(id)?.length ?? 0;
+  // Root preference: nearest a supply first; with no supply node at all, the
+  // busiest distribution hub (most adjacent boards) anchors the tree.
+  const boardOrder = (a: string, b: string) =>
+    supplyRank(a) - supplyRank(b) ||
+    boardNeighbourCount(b) - boardNeighbourCount(a) ||
+    directLoadCount(b) - directLoadCount(a) ||
+    nodeLabel(byId.get(a)!).localeCompare(nodeLabel(byId.get(b)!));
+
   const parentOf = new Map<string, string | null>();
   const childrenOf = new Map<string, string[]>();
   for (const b of boards) childrenOf.set(b.id, []);
-  for (const b of boards) {
-    const myDist = sourceDist.get(b.id) ?? Infinity;
-    let parent: string | null = null;
-    let parentDist = Infinity;
-    for (const other of adjacentBoards.get(b.id) ?? []) {
-      const od = sourceDist.get(other) ?? Infinity;
-      if (od < myDist && od < parentDist) {
-        parent = other;
-        parentDist = od;
+
+  const placed = new Set<string>();
+  // Seed roots in supply order so the most-upstream board anchors each group.
+  const seeds = [...boards].sort((a, b) => boardOrder(a.id, b.id));
+  for (const seed of seeds) {
+    if (placed.has(seed.id)) continue;
+    placed.add(seed.id);
+    parentOf.set(seed.id, null);
+    const queue: string[] = [seed.id];
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      const neighbours = [...(adjacentBoards.get(cur) ?? [])].sort(boardOrder);
+      for (const nb of neighbours) {
+        if (placed.has(nb)) continue;
+        placed.add(nb);
+        parentOf.set(nb, cur);
+        childrenOf.get(cur)!.push(nb);
+        queue.push(nb);
       }
     }
-    parentOf.set(b.id, parent);
-  }
-  for (const b of boards) {
-    const p = parentOf.get(b.id);
-    if (p && childrenOf.has(p)) childrenOf.get(p)!.push(b.id);
   }
 
   // Cumulative totals for a board = its own direct loads + every descendant
@@ -349,17 +417,16 @@ export function buildLoadSchedule(
   }
   const roots = boards
     .filter((b) => !parentOf.get(b.id))
-    .sort(
-      (a, b) =>
-        (sourceDist.get(a.id) ?? Infinity) - (sourceDist.get(b.id) ?? Infinity) ||
-        nodeLabel(a).localeCompare(nodeLabel(b)),
-    );
+    .sort((a, b) => boardOrder(a.id, b.id));
   for (const r of roots) visit(r.id, 0);
   // Catch any board left out by an unusual topology (e.g. a ring with no clear root).
   for (const b of boards) if (!emitted.has(b.id)) visit(b.id, 0);
 
   const unassignedLoads = nodes.filter(
-    (n) => isLoad(n) && includeInReports(n.data) && !assigned.has(n.id),
+    (n) =>
+      (isLoad(n) || isSpare(n)) &&
+      includeInReports(n.data) &&
+      !assigned.has(n.id),
   );
   let unassigned: BoardSchedule | null = null;
   if (unassignedLoads.length > 0) {

@@ -60,18 +60,6 @@ export function PageList() {
     setAddOpen(false);
   }
 
-  function addBom() {
-    addPage({
-      id: newPageId(),
-      title: "Bill of Materials",
-      type: "bom",
-      titleBlock: {},
-      annotations: [],
-      bom: { includePipes: true },
-    });
-    setAddOpen(false);
-  }
-
   function addFullDiagram() {
     const nodes = useDiagramStore.getState().nodes;
     const edges = useDiagramStore.getState().edges;
@@ -122,7 +110,6 @@ export function PageList() {
             <div className="absolute right-0 top-full z-20 mt-1 flex w-44 flex-col rounded-md border border-zinc-700 bg-[var(--color-panel-2)] shadow-lg">
               <AddOption icon={Heading} label="Title / section page" onClick={addTitlePage} />
               <AddOption icon={FileText} label="Full diagram" onClick={addFullDiagram} />
-              <AddOption icon={ClipboardList} label="Bill of materials" onClick={addBom} />
               <AddOption icon={Sticker} label="Blank annotation page" onClick={addBlank} />
             </div>
           )}

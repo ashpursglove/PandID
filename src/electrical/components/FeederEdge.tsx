@@ -11,6 +11,7 @@ import { CONNECTION_STYLES } from "@/electrical/symbols/connectionStyles";
 import { cableSpecLabel } from "@/electrical/symbols/cablePresets";
 import { specLabelOffset as resolveSpecOffset } from "@/electrical/symbols/edgeLabels";
 import { feederCenter } from "@/electrical/symbols/feederRouting";
+import { nodePhase, powerFeederPhase, PHASE1_EDITOR } from "@/electrical/symbols/phase";
 import { useElectricalStore, type ElecEdge } from "@/electrical/store/electricalStore";
 import {
   buildRoutedPath,
@@ -23,6 +24,8 @@ import { useEdgeIssue } from "./issuesContext";
 
 export const FeederEdge = memo(function FeederEdge({
   id,
+  source,
+  target,
   sourceX,
   sourceY,
   targetX,
@@ -39,6 +42,19 @@ export const FeederEdge = memo(function FeederEdge({
 
   const updateEdgeData = useElectricalStore((s) => s.updateEdgeData);
   const selectEdge = useElectricalStore((s) => s.selectEdge);
+  // Single-phase feeders read green. We resolve phase from the two endpoint
+  // components (a feeder to a single-phase motor is single-phase) and fall back
+  // to the cable construction.
+  const srcPhase = useElectricalStore((s) =>
+    nodePhase(s.nodes.find((n) => n.id === source)),
+  );
+  const tgtPhase = useElectricalStore((s) =>
+    nodePhase(s.nodes.find((n) => n.id === target)),
+  );
+  const phase = powerFeederPhase(connectionType, data?.cable?.presetId, [
+    srcPhase,
+    tgtPhase,
+  ]);
   // Index of this edge in the store, used to pick a unique routing offset so
   // adjacent feeders separate instead of overlapping.
   const edgeIndex = useElectricalStore((s) =>
@@ -117,10 +133,11 @@ export const FeederEdge = memo(function FeederEdge({
   const issueStroke =
     issue === "error" ? "#f87171" : issue === "warning" ? "#fbbf24" : undefined;
 
+  const phaseStroke = phase === 1 ? PHASE1_EDITOR : lineStyle.stroke;
   const stroke =
     issueStroke ??
     (extraStyle?.stroke as string | undefined) ??
-    (selected ? "#7dd3fc" : lineStyle.stroke);
+    (selected ? "#7dd3fc" : phaseStroke);
   const strokeWidth =
     (extraStyle?.strokeWidth as number | undefined) ??
     (lineStyle.strokeWidth ?? 2) + (selected ? 0.5 : 0) + (issue ? 1 : 0);

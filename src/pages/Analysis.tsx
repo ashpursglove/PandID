@@ -1,11 +1,14 @@
 import { useMemo, useState } from "react";
 import {
   AlertTriangle,
+  ClipboardList,
   HelpCircle,
   Info,
   Play,
   Send,
 } from "lucide-react";
+
+import { sendPidBomToDrawings } from "@/components/Drawings/sendBomPage";
 
 import { useDiagramStore } from "@/store/diagramStore";
 import { useProjectStore } from "@/store/projectStore";
@@ -56,6 +59,16 @@ export function Analysis() {
 
   const setStartId = (v: string) => setAnalysisSelection({ startId: v });
   const setEndId = (v: string) => setAnalysisSelection({ endId: v });
+
+  // Click-to-pick from the preview: first click sets From, second sets To,
+  // and a third (or clicking the current From) starts a fresh From selection.
+  const pickNode = (id: string) => {
+    if (!startId || (startId && endId)) {
+      setAnalysisSelection({ startId: id, endId: "" });
+    } else if (id !== startId) {
+      setAnalysisSelection({ endId: id });
+    }
+  };
   const setFluidId = (v: string) => setAnalysisSelection({ fluidId: v });
   const setMode = (v: Mode) => setAnalysisSelection({ mode: v });
   const setTargetQM3h = (v: number) =>
@@ -379,6 +392,15 @@ export function Analysis() {
             <Play size={14} /> Solve
           </button>
 
+          <button
+            type="button"
+            onClick={() => sendPidBomToDrawings()}
+            title="Build a Bill of Materials from this P&ID and add it to the Drawings tab"
+            className="flex items-center justify-center gap-2 rounded border border-zinc-700 bg-[var(--color-panel-2)] px-3 py-2 text-sm font-medium text-zinc-200 transition hover:border-sky-500 hover:text-sky-200"
+          >
+            <ClipboardList size={14} /> Send BOM to Drawings
+          </button>
+
           {error && (
             <p className="rounded border border-red-800 bg-red-950/60 px-2 py-1.5 text-[11px] text-red-200">
               <AlertTriangle size={12} className="-mt-0.5 mr-1 inline" />
@@ -394,6 +416,7 @@ export function Analysis() {
           edges={edges}
           startId={startId}
           endId={endId}
+          onPickNode={pickNode}
         />
         {result ? (
           <ResultView

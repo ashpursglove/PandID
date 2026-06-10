@@ -17,20 +17,24 @@ import { CONNECTION_STYLES } from "@/electrical/symbols/connectionStyles";
 import { cableSpecLabel } from "@/electrical/symbols/cablePresets";
 import { specLabelOffset } from "@/electrical/symbols/edgeLabels";
 import { feederCenter } from "@/electrical/symbols/feederRouting";
+import { feederPhase, nodePhase, PHASE1_PRINT } from "@/electrical/symbols/phase";
 import { buildRoutedPath, type RoutePoint } from "@/components/shared/edgeRouting";
 import { rotatePort, portLocalXY } from "@/io/geometry";
-import { resolveTagSide, tagSvgCoords } from "@/io/tagPlacement";
+import { resolveTagSide, tagWorldCoords } from "@/io/tagPlacement";
 import {
   DRAW_X,
   DRAW_Y,
   DRAW_W,
   DRAW_H,
   escapeText,
-  renderZoneLabel,
   renderZoneWorld,
   textAt,
 } from "@/io/svgRender";
-import { isZoneNode, zoneBoxSize } from "@/components/shared/zone";
+import {
+  DEFAULT_ZONE_COLOR,
+  isZoneNode,
+  zoneBoxSize,
+} from "@/components/shared/zone";
 import {
   boltedChildIds,
   buildBoltTableRows,
@@ -131,26 +135,30 @@ function renderSldArea(
     .filter(Boolean);
   // Tags of components bolted onto a board/bus move into that parent's
   // schedule table, so suppress them on the symbols (they'd just overlap).
+  //
+  // Every label below is rendered in *world* coordinates and placed inside the
+  // same scaled group as the symbols/zones, at the same font sizes the editor
+  // uses (in world units). That makes the captured view scale uniformly — a
+  // true screenshot of the editor — instead of text/tables keeping a fixed mm
+  // size that drifts out of proportion as the page scale changes.
   const hiddenTagIds = boltedChildIds(nodes, edges);
   const tagMarkup = nodes
     .filter((n) => !hiddenTagIds.has(n.id))
-    .map((n) => renderNodeTag(n, scale, offsetX, offsetY, overrides[n.id]))
+    .map((n) => renderNodeTagWorld(n, overrides[n.id]))
     .filter(Boolean)
     .join("");
   const boltTables = nodes
     .filter((n) => isContainerNode(n))
-    .map((n) => renderBoltTable(n, nodes, edges, scale, offsetX, offsetY))
+    .map((n) => renderBoltTableWorld(n, nodes, edges))
     .filter(Boolean)
     .join("");
   const edgeLabels = edges
-    .map((e) =>
-      renderEdgeLabel(e, nodesById, scale, offsetX, offsetY, overrides[e.id]),
-    )
+    .map((e) => renderEdgeLabelWorld(e, nodesById, overrides[e.id]))
     .filter(Boolean)
     .join("");
   const zoneLabels = nodes
     .filter((n) => isZoneNode(n))
-    .map((n) => renderZoneLabel(n, scale, offsetX, offsetY))
+    .map((n) => renderZoneLabelWorld(n))
     .filter(Boolean)
     .join("");
 
@@ -166,8 +174,8 @@ function renderSldArea(
         <g class="zones">${innerZones.join("")}</g>
         <g class="edges">${innerEdges.join("")}</g>
         <g class="nodes">${innerNodes.join("")}</g>
+        <g class="labels">${zoneLabels}${tagMarkup}${edgeLabels}${boltTables}</g>
       </g>
-      <g class="labels">${zoneLabels}${tagMarkup}${edgeLabels}${boltTables}</g>
     </g>
   </g>`;
 }
@@ -178,9 +186,10 @@ function renderNodeWorld(node: ElecNode, override?: string): string {
   const { Icon } = symbol;
   const size = getNodeSize(symbol, node.data);
   const rotation = node.data.rotation ?? 0;
+  const phaseInk = nodePhase(node) === 1 ? PHASE1_PRINT : INK;
   const innerSvg = styleSymbolForPrint(
     renderToStaticMarkup(<Icon width={size.width} height={size.height} />),
-    override ?? INK,
+    override ?? phaseInk,
   );
   // Transparent hit area so clicks register on the symbol's interior
   // whitespace (most symbols are open outlines), enabling selection in the
@@ -193,13 +202,12 @@ function renderNodeWorld(node: ElecNode, override?: string): string {
   }">${hitArea}${innerSvg}</g>`;
 }
 
-function renderNodeTag(
-  node: ElecNode,
-  scale: number,
-  offsetX: number,
-  offsetY: number,
-  override?: string,
-): string {
+/**
+ * Component tag in world coordinates. Font size (11) and gap match the live
+ * editor's `tagEditorStyle`, so once the whole group is page-scaled the tag
+ * keeps the exact proportion to its symbol that the user saw on the canvas.
+ */
+function renderNodeTagWorld(node: ElecNode, override?: string): string {
   const symbol = getElecSymbol(node.data.symbolType);
   if (!symbol) return "";
   const tag = node.data.tag ?? node.data.label ?? symbol.defaultLabel ?? "";
@@ -207,19 +215,35 @@ function renderNodeTag(
   const size = getNodeSize(symbol, node.data);
   const rotation = node.data.rotation ?? 0;
   const side = resolveTagSide(getNodePorts(symbol, node.data), rotation);
-  const fontSize = Math.max(2.6, Math.min(4.5, size.height * scale * 0.18));
-  const { x, y, anchor } = tagSvgCoords(
+  const phaseInk = nodePhase(node) === 1 ? PHASE1_PRINT : INK;
+  const fontSize = 11;
+  const { x, y, anchor } = tagWorldCoords(
     side,
     node.position.x,
     node.position.y,
     size.width,
     size.height,
-    scale,
-    offsetX,
-    offsetY,
+    5,
     fontSize,
   );
-  return `<text x="${x.toFixed(3)}" y="${y.toFixed(3)}" text-anchor="${anchor}" font-size="${fontSize.toFixed(2)}" font-family="Inter, Helvetica, Arial, sans-serif" fill="${override ?? INK}" pointer-events="none">${escapeText(tag)}</text>`;
+  return `<text x="${x.toFixed(3)}" y="${y.toFixed(3)}" text-anchor="${anchor}" font-size="${fontSize}" font-family="Inter, Helvetica, Arial, sans-serif" fill="${override ?? phaseInk}" pointer-events="none">${escapeText(tag)}</text>`;
+}
+
+/**
+ * Zone label chip in world coordinates, matching the editor's `ZoneNode`
+ * label tab (11 px, sitting just above the box's top-left corner).
+ */
+function renderZoneLabelWorld(node: ElecNode): string {
+  const label = ((node.data.zoneLabel as string) || "Area").trim();
+  if (!label) return "";
+  const color = (node.data.zoneColor as string) || DEFAULT_ZONE_COLOR;
+  const x = node.position.x;
+  const y = node.position.y;
+  const fs = 11;
+  const padX = 8;
+  const chipH = 18;
+  const chipW = label.length * fs * 0.6 + padX * 2;
+  return `<g pointer-events="none"><rect x="${(x + 8).toFixed(2)}" y="${(y - 11).toFixed(2)}" width="${chipW.toFixed(2)}" height="${chipH}" rx="4" fill="${color}" /><text x="${(x + 8 + padX).toFixed(2)}" y="${(y - 11 + 12.5).toFixed(2)}" font-size="${fs}" font-family="Inter, Helvetica, Arial, sans-serif" font-weight="bold" fill="#0b0f17">${escapeText(label)}</text></g>`;
 }
 
 function renderEdgeWorld(
@@ -281,7 +305,9 @@ function renderEdgeWorld(
   );
   const style = CONNECTION_STYLES[edge.data?.connectionType ?? "lv-power"];
   const widthMult = widthMultiplier ?? 1;
-  const stroke = override ?? INK;
+  const phaseInk =
+    feederPhase(edge, source, target) === 1 ? PHASE1_PRINT : INK;
+  const stroke = override ?? phaseInk;
   const baseW =
     Math.max(STROKE_MM_FLOOR, style.strokeWidth * STROKE_MM_FACTOR) * widthMult;
   const dash = style.strokeDasharray
@@ -298,12 +324,14 @@ function renderEdgeWorld(
   return `<g data-element-id="${escapeText(edge.id)}" data-element-kind="edge">${hit}${primary}</g>`;
 }
 
-function renderEdgeLabel(
+/**
+ * Feeder tag + cable-spec labels in world coordinates. Font sizes (10 / 9) and
+ * the spec drag offset mirror the live `FeederEdge`, so the labels sit and
+ * scale exactly as they did in the editor once the group is page-scaled.
+ */
+function renderEdgeLabelWorld(
   edge: ElecEdge,
   nodesById: Map<string, ElecNode>,
-  scale: number,
-  offsetX: number,
-  offsetY: number,
   override?: string,
 ): string {
   const tag = edge.data?.tag;
@@ -328,21 +356,17 @@ function renderEdgeLabel(
     1,
     (a) => ["", (a.sourceX + a.targetX) / 2, (a.sourceY + a.targetY) / 2],
   );
-  const mx = lx * scale + offsetX;
-  const my = ly * scale + offsetY - 1;
   const fill = override ?? INK;
   const parts: string[] = [];
   if (tag) {
     parts.push(
-      `<text x="${mx.toFixed(3)}" y="${(spec ? my - 1.6 : my).toFixed(3)}" font-size="2.4" font-family="Inter, Helvetica, Arial, sans-serif" text-anchor="middle" fill="${fill}" pointer-events="none">${escapeText(tag)}</text>`,
+      `<text x="${lx.toFixed(3)}" y="${(ly + 3.5).toFixed(3)}" font-size="10" font-family="Inter, Helvetica, Arial, sans-serif" text-anchor="middle" fill="${fill}" pointer-events="none">${escapeText(tag)}</text>`,
     );
   }
   if (spec) {
     const off = specLabelOffset(!!tag, edge.data?.specLabelOffset);
-    const specX = (lx + off.x) * scale + offsetX;
-    const specY = (ly + off.y) * scale + offsetY - 1;
     parts.push(
-      `<text x="${specX.toFixed(3)}" y="${specY.toFixed(3)}" font-size="2.1" font-family="Inter, Helvetica, Arial, sans-serif" text-anchor="middle" fill="${fill}" pointer-events="none">${escapeText(spec)}</text>`,
+      `<text x="${(lx + off.x).toFixed(3)}" y="${(ly + off.y + 3).toFixed(3)}" font-size="9" font-family="Inter, Helvetica, Arial, sans-serif" text-anchor="middle" fill="${fill}" pointer-events="none">${escapeText(spec)}</text>`,
     );
   }
   return parts.join("");
@@ -350,67 +374,123 @@ function renderEdgeLabel(
 
 /**
  * Schedule table beside a board / busbar listing everything bolted onto it
- * (way, tag, type, rating). Drawn in mm in the labels layer so it prints at a
- * fixed, readable size — mirrors the draggable editor table.
+ * (way, tag, type, rating). Drawn in *world* coordinates (168 units wide,
+ * 7-unit text) to mirror the editor's draggable Connections table exactly, so
+ * it scales with the rest of the captured view instead of keeping a fixed mm
+ * size that drifts out of proportion.
  */
-function renderBoltTable(
+function renderBoltTableWorld(
   node: ElecNode,
   nodes: ElecNode[],
   edges: ElecEdge[],
-  scale: number,
-  offsetX: number,
-  offsetY: number,
 ): string {
   const rows = buildBoltTableRows(node.id, nodes, edges);
   if (rows.length === 0) return "";
   const symbol = getElecSymbol(node.data.symbolType);
   const size = symbol ? getNodeSize(symbol, node.data) : { width: 96, height: 64 };
   const offset = node.data.boltTableOffset ?? { x: size.width + 16, y: 0 };
-  const ox = (node.position.x + offset.x) * scale + offsetX;
-  const oy = (node.position.y + offset.y) * scale + offsetY;
+  const ox = node.position.x + offset.x;
+  const oy = node.position.y + offset.y;
 
+  // World-unit geometry matching ContainerConnectionsTable (168 wide, 7px text).
+  const W = 168;
+  const fs = 7;
+  const lineH = 9; // per wrapped line (≈ fs · 1.25 line-height)
+  const padV = 3; // top/bottom cell padding
+  const titleH = 15;
+  const headerH = 13;
+  // Column x + character budget per column (so long cells wrap instead of
+  // truncating, exactly like the editor's auto-wrapping table cells).
   const cols = [
-    { x: 1, label: "Way" },
-    { x: 7, label: "Tag" },
-    { x: 23, label: "Type" },
-    { x: 45, label: "Rating" },
+    { x: 5, label: "Way", max: 5 },
+    { x: 28, label: "Tag", max: 9 },
+    { x: 64, label: "Type", max: 14 },
+    { x: 120, label: "Rating", max: 11 },
   ];
-  const W = 62;
-  const titleH = 4.4;
-  const headerH = 4;
-  const rowH = 3.6;
-  const H = titleH + headerH + rows.length * rowH;
 
-  const parts: string[] = [];
-  parts.push(
-    `<rect x="${ox.toFixed(2)}" y="${oy.toFixed(2)}" width="${W}" height="${H.toFixed(2)}" fill="#ffffff" stroke="${INK}" stroke-width="0.3" rx="0.8" />`,
-  );
+  // Pre-wrap every cell and size each row to the tallest column in it.
+  const wrapped = rows.map((r) => {
+    const cells = [
+      wrapText(r.tap, cols[0].max),
+      wrapText(r.tag, cols[1].max),
+      wrapText(r.type, cols[2].max),
+      wrapText(r.rating, cols[3].max),
+    ];
+    const lineCount = Math.max(...cells.map((c) => c.length));
+    return { cells, height: lineCount * lineH + padV * 2 };
+  });
+  const bodyH = wrapped.reduce((a, w) => a + w.height, 0);
+  const H = titleH + headerH + bodyH;
+
   const owner = node.data.tag ?? node.data.label ?? "Board";
   const title = `${owner} — Connections`;
-  parts.push(textAt(ox + 1.5, oy + titleH * 0.72, title, 2.5, "start", true));
+  const parts: string[] = [];
+  // Body + title bar (print-friendly white/ink, like the rest of the drawing).
   parts.push(
-    `<line x1="${ox.toFixed(2)}" y1="${(oy + titleH).toFixed(2)}" x2="${(ox + W).toFixed(2)}" y2="${(oy + titleH).toFixed(2)}" stroke="${INK}" stroke-width="0.3" />`,
+    `<rect x="${ox.toFixed(2)}" y="${oy.toFixed(2)}" width="${W}" height="${H.toFixed(2)}" fill="#ffffff" stroke="${INK}" stroke-width="0.7" rx="3" />`,
   );
-  const headerY = oy + titleH + headerH * 0.72;
+  parts.push(
+    `<path d="M${ox.toFixed(2)} ${(oy + titleH).toFixed(2)} L${ox.toFixed(2)} ${(oy + 3).toFixed(2)} Q${ox.toFixed(2)} ${oy.toFixed(2)} ${(ox + 3).toFixed(2)} ${oy.toFixed(2)} L${(ox + W - 3).toFixed(2)} ${oy.toFixed(2)} Q${(ox + W).toFixed(2)} ${oy.toFixed(2)} ${(ox + W).toFixed(2)} ${(oy + 3).toFixed(2)} L${(ox + W).toFixed(2)} ${(oy + titleH).toFixed(2)} Z" fill="#e2e8f0" />`,
+  );
+  parts.push(textAt(ox + 5, oy + titleH * 0.7, title, fs, "start", true));
+  parts.push(
+    `<line x1="${ox.toFixed(2)}" y1="${(oy + titleH).toFixed(2)}" x2="${(ox + W).toFixed(2)}" y2="${(oy + titleH).toFixed(2)}" stroke="${INK}" stroke-width="0.5" />`,
+  );
+  const headerY = oy + titleH + headerH * 0.7;
   for (const c of cols) {
-    parts.push(textAt(ox + c.x, headerY, c.label, 2.1, "start", true));
+    parts.push(textAt(ox + c.x, headerY, c.label, fs, "start", true));
   }
   parts.push(
-    `<line x1="${ox.toFixed(2)}" y1="${(oy + titleH + headerH).toFixed(2)}" x2="${(ox + W).toFixed(2)}" y2="${(oy + titleH + headerH).toFixed(2)}" stroke="${INK}" stroke-width="0.25" />`,
+    `<line x1="${ox.toFixed(2)}" y1="${(oy + titleH + headerH).toFixed(2)}" x2="${(ox + W).toFixed(2)}" y2="${(oy + titleH + headerH).toFixed(2)}" stroke="${INK}" stroke-width="0.4" />`,
   );
-  rows.forEach((r, i) => {
-    const rowTop = oy + titleH + headerH + i * rowH;
-    const textY = rowTop + rowH * 0.72;
-    parts.push(textAt(ox + cols[0].x, textY, r.tap, 2.0, "start"));
-    parts.push(textAt(ox + cols[1].x, textY, clampText(r.tag, 11), 2.0, "start"));
-    parts.push(textAt(ox + cols[2].x, textY, clampText(r.type, 15), 2.0, "start"));
-    parts.push(textAt(ox + cols[3].x, textY, clampText(r.rating, 13), 2.0, "start"));
+  let rowTop = oy + titleH + headerH;
+  wrapped.forEach((w, i) => {
+    if (i > 0) {
+      parts.push(
+        `<line x1="${ox.toFixed(2)}" y1="${rowTop.toFixed(2)}" x2="${(ox + W).toFixed(2)}" y2="${rowTop.toFixed(2)}" stroke="#cbd5e1" stroke-width="0.3" />`,
+      );
+    }
+    // Top-aligned cells (matches the editor), each line stacked downward.
+    w.cells.forEach((lines, c) => {
+      lines.forEach((line, li) => {
+        const ly = rowTop + padV + fs + li * lineH;
+        parts.push(textAt(ox + cols[c].x, ly, line, fs, "start"));
+      });
+    });
+    rowTop += w.height;
   });
   return `<g class="bolt-table">${parts.join("")}</g>`;
 }
 
-function clampText(s: string, max: number): string {
-  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+/**
+ * Word-wrap `s` into lines of at most `maxChars` characters, breaking on spaces
+ * and hard-breaking any single word that's longer than the column allows — so
+ * the drawing table shows every cell in full rather than truncating it.
+ */
+function wrapText(s: string, maxChars: number): string[] {
+  const max = Math.max(1, Math.floor(maxChars));
+  const words = (s ?? "").split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let cur = "";
+  for (let word of words) {
+    while (word.length > max) {
+      if (cur) {
+        lines.push(cur);
+        cur = "";
+      }
+      lines.push(word.slice(0, max));
+      word = word.slice(max);
+    }
+    const candidate = cur ? `${cur} ${word}` : word;
+    if (candidate.length <= max) {
+      cur = candidate;
+    } else {
+      if (cur) lines.push(cur);
+      cur = word;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [""];
 }
 
 function styleSymbolForPrint(svg: string, ink: string): string {

@@ -97,6 +97,10 @@ export interface SymbolDef {
   /** Static type-level hydraulic defaults — fall-backs when the user hasn't
    *  explicitly set Cv / K / ΔP on the node. */
   hydraulics?: HydraulicsHint;
+  /** Connectors are skipped from the BOM by default (tap points, off-page
+   *  refs…). Set this true for connector-category parts that ARE real,
+   *  purchaseable items — e.g. a pipe tee — so they're listed. */
+  countInBom?: boolean;
 }
 
 /** Visual style applied to an edge depending on its `lineType`. */

@@ -127,6 +127,12 @@ import type {
   SymbolCategory,
   SymbolDef,
 } from "@/symbols/types";
+import { PIPE_MATERIAL_OPTIONS, PIPE_NOMINAL_OPTIONS } from "@/presets/pipes";
+
+const PIPE_MATERIAL_LABELS = PIPE_MATERIAL_OPTIONS.map((m) => m.label);
+const PIPE_NOMINAL_LABELS = PIPE_NOMINAL_OPTIONS.map((n) => n.label);
+const DEFAULT_TEE_SIZE = PIPE_NOMINAL_LABELS[4]; // DN40
+const DEFAULT_TEE_MATERIAL = PIPE_MATERIAL_LABELS[0]; // PVC / HDPE
 
 /** Ports shared across all simple inline (2-port) symbols. */
 const INLINE_PORTS = [
@@ -2115,6 +2121,29 @@ export const SYMBOL_REGISTRY: Record<string, SymbolDef> = {
     ],
     engineModel: "passive",
     Icon: PipeTee,
+    tagPrefix: "T",
+    // A real, purchaseable fitting: carries a pipe size + material and lists in
+    // the BOM like any other component.
+    countInBom: true,
+    paramSchema: [
+      {
+        key: "material",
+        label: "Material",
+        kind: "select",
+        options: PIPE_MATERIAL_LABELS,
+        default: DEFAULT_TEE_MATERIAL,
+        group: "Pipe spec",
+      },
+      {
+        key: "nominalDn",
+        label: "Size",
+        kind: "select",
+        options: PIPE_NOMINAL_LABELS,
+        default: DEFAULT_TEE_SIZE,
+        group: "Pipe spec",
+      },
+    ],
+    defaultParams: { material: DEFAULT_TEE_MATERIAL, nominalDn: DEFAULT_TEE_SIZE },
     defaultLabel: "",
   },
   "off-page-connector": {

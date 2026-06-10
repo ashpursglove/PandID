@@ -10,13 +10,16 @@ export function OffPageConnector(props: SymbolIconProps) {
   );
 }
 
-/** Pipe junction / tee — three short stubs meeting at a node. */
+/** Pipe junction / tee — three short stubs meeting at a node. Drawn with a
+ *  heavier stroke (the glyph sits on a 64-unit grid but renders at 32 px, so
+ *  the line weight is scaled down) so it reads at the same weight as the pipes
+ *  it joins. */
 export function PipeTee(props: SymbolIconProps) {
   return (
-    <SvgFrame {...props}>
-      <line x1={4} y1={32} x2={60} y2={32} />
-      <line x1={32} y1={32} x2={32} y2={56} />
-      <circle cx={32} cy={32} r={2.5} fill="currentColor" />
+    <SvgFrame {...props} strokeWidth={4}>
+      <line x1={2} y1={32} x2={62} y2={32} />
+      <line x1={32} y1={32} x2={32} y2={62} />
+      <circle cx={32} cy={32} r={4} fill="currentColor" stroke="none" />
     </SvgFrame>
   );
 }

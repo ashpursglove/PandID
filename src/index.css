@@ -85,6 +85,17 @@ body {
       0 0 13px 3px rgba(245, 158, 11, 0.8);
   }
 }
+/*
+ * Tightly-packed devices bolted onto a board overlap each other's 64×64 node
+ * boxes, making the middle ones hard (or impossible) to click. Disable pointer
+ * events on the node wrapper so the transparent margins don't steal clicks, and
+ * let each symbol re-enable a centred hit area (`.elec-node-hit`) plus its
+ * handles / connection table. Only scoped to the electrical canvas.
+ */
+.elec-flow .react-flow__node-symbol {
+  pointer-events: none;
+}
+
 .elec-node-throb-error {
   border-radius: 8px;
   animation: elecThrobError 1.1s ease-in-out infinite;

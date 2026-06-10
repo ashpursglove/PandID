@@ -111,6 +111,9 @@ interface ElectricalState {
   selectEdge: (id: string) => void;
   /** Delete one edge by id (used by the inspector's Unbolt action). */
   removeEdgeById: (id: string) => void;
+  /** Break every direct (bolted) joint touching a node and nudge the node
+   *  clear so the two parts visibly separate without deleting either. */
+  unboltNode: (id: string) => void;
   updateNodeData: (id: string, patch: Partial<ElecNodeData>) => void;
   updateEdgeData: (id: string, patch: Partial<ElecEdgeData>) => void;
   rotateSelected: (deltaDeg: number) => void;
@@ -295,6 +298,36 @@ export const useElectricalStore = create<ElectricalState>()(
           selectedEdgeId: get().selectedEdgeId === id ? null : get().selectedEdgeId,
           selectedEdgeIds: get().selectedEdgeIds.filter((x) => x !== id),
         }),
+
+      unboltNode: (id) => {
+        const { nodes, edges } = get();
+        const touching = edges.filter(
+          (e) => isDirectEdge(e) && (e.source === id || e.target === id),
+        );
+        if (touching.length === 0) return;
+        const gone = new Set(touching.map((e) => e.id));
+        // Nudge the node down-right so it pops clear of its former partner.
+        const OFFSET = 48;
+        set({
+          edges: edges.filter((e) => !gone.has(e.id)),
+          nodes: nodes.map((n) =>
+            n.id === id
+              ? {
+                  ...n,
+                  position: {
+                    x: n.position.x + OFFSET,
+                    y: n.position.y + OFFSET,
+                  },
+                }
+              : n,
+          ),
+          selectedEdgeIds: get().selectedEdgeIds.filter((x) => !gone.has(x)),
+          selectedEdgeId:
+            get().selectedEdgeId && gone.has(get().selectedEdgeId!)
+              ? null
+              : get().selectedEdgeId,
+        });
+      },
 
       updateNodeData: (id, patch) => {
         const prevNodes = get().nodes;

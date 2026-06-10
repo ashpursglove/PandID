@@ -23,11 +23,43 @@ This is a **local, offline, no-licence, no-login, no-corporate-spaff** desktop a
 
 1. **Drawing piping & instrumentation diagrams (P&IDs)** with proper ISO-style symbology.
 2. **Solving the hydraulics** of a path through that diagram — actual Darcy-Weisbach friction losses, actual pump curves, actual operating points.
-3. **Issuing a multi-page drawing pack PDF** with a real title block, sheet numbering, revisions, and a bill of materials, like a grown-up engineer.
+3. **Designing the electrical single-line diagram (SLD)** on a parallel canvas — distribution boards, breakers, transformers, drives, motors and loads — then having it spit out a **hierarchical schedule of loads**, a **cable schedule** with real voltage-drop and ampacity checks, an **electrical bill of materials**, and a **validation pass** that warns you when a breaker is underrated or a feeder is undersized. There's even a one-click **Auto-Size** that picks the smallest compliant cable and breaker for you.
+4. **Issuing a multi-page drawing pack PDF** with a real title block, sheet numbering, revisions, and a bill of materials, like a grown-up engineer — covering *both* disciplines.
+
+It started life as a P&ID + hydraulics tool (hence the repo name). It is now a small **MEP** (mechanical, electrical & plumbing) playground, which is why the app is called **Ash's MEP Playground**.
 
 It runs entirely on your machine. There is no cloud. There is no telemetry. There is no licence server. There is nobody in a Salesforce dashboard somewhere watching you place a ball valve.
 
 You launch the app. You draw. You save. You export. The end.
+
+---
+
+## What's New Since v1 (the 2.x line)
+
+v1 drew pipes and solved pumps. v2 grew a whole second discipline and a pile of drafting niceties. The headlines:
+
+**A complete electrical discipline.** An entire **Electrical Editor** alongside the P&ID Editor — its own canvas, its own ~83-symbol library (supplies, transformers, breakers, fuses, isolators, contactors, busbars & boards, drives, motors, pumps, loads, metering, earthing, RCDs, switches, life-safety, security, renewables…), its own analysis tab. Build a single-line diagram and the tool generates:
+- a **hierarchical schedule of loads** that walks the board tree (main board → sub-boards → loads) and rolls demand up correctly, even on transformer-fed or source-less systems,
+- a **cable schedule** with per-circuit voltage drop, ampacity and conductor-temperature checks,
+- an **electrical BOM** with total cable run lengths,
+- a **validation pass** that throbs red on real problems — underrated breakers, undersized feeders, missing ratings,
+- a **one-click Auto-Size** that minimises conductor CSA, flips single/three-phase where it helps, and selects the smallest compliant breaker from the standard rating ladder.
+
+**Spare breakers.** ACB / MCCB / MCB / MPCB now have **Spare** variants — no outgoing circuit, but their rating still counts as a load upstream, so you can future-proof a board and have everything sized for the loads you haven't added yet.
+
+**Phase-aware colouring.** Single-phase runs draw green, three-phase keep the conventional colour — in the editor *and* in the issued drawings, and still fully editable.
+
+**Drafting & workflow upgrades (both disciplines):**
+- **Zones / boxes** for labelling and grouping regions of a diagram.
+- **Bolted (direct) connections** — components can sit flush against each other with no visible cabling/piping, and a tidy **Connections** table documents the joins. A **"Separate bolted joint"** button cleanly un-bolts them again (works for pipes *and* electrical gear).
+- **Pipe tees** are now first-class: they inherit pipe size/material and appear in the BOM.
+- **Include in BOM & schedules** checkbox on every component, cable and pipe — on by default, toggle anything out of the reports and its load still rolls up to its parent.
+- **Import** another project on top of the current one (placed above existing content and pre-selected for positioning).
+- **Title / cover page** for the drawing pack.
+- **Draggable cable type/size labels**, magnetic axis-snapping for straight runs, draggable waypoints that move with grouped selections, bigger hit-boxes, more zoom-out range.
+- **Paginated electrical schedules & BOMs sent to the Drawings tab**, with consistent embedded PDF fonts.
+
+The rest of this README still leads with the P&ID/hydraulics side because that's the heart of it — but everything below applies to both canvases unless stated.
 
 ---
 
@@ -145,6 +177,28 @@ When solve is clicked, the engine:
 
 </p>
 
+## The Electrical Side — Single-Line Diagrams (SLD)
+### A second canvas with the same philosophy: draw it, let the tool do the maths, issue the sheet.
+
+The **Electrical Editor** sits next to the P&ID Editor as its own tab with its own infinite canvas, palette and inspector. Same drag-and-drop, same auto-tagging, same undo/redo, same "send view to Drawings" — just for power instead of process.
+
+- **~83 electrical symbols** grouped sensibly: supplies & utility intakes, renewables (PV, wind, battery), transformers, breakers (ACB, MCCB, MCB, MPCB + **Spare** variants), fuses, isolators & disconnectors, contactors & relays, busbars & distribution boards, VSDs/soft-starters, motors, pumps, generic loads, power-quality kit, metering, earthing, residual-current devices, switches & control, automation, monitoring, life-safety, security and accessories.
+- **Distribution boards & busbars with configurable taps** — set the number of ways, the tap separation and the drawn width, and child devices bolt straight onto the board with no spaghetti cabling. The **Connections** table documents what's wired where and is draggable so labels never overlap.
+- **Selectable rated current** for every breaker from the standard ladder, with **live warnings** when a device is underrated for the load behind it.
+- **Default 380 V three-phase** (override per source), phase-aware colouring, smooth-stepped feeders that turn cleanly instead of stabbing through boxes.
+
+Hit the analysis and the tool produces three things straight from the diagram:
+
+1. **Schedule of loads** — a true hierarchy. It builds a spanning forest over the board graph so the main board, every sub-board, and every load lands in the right place and rolls up correctly, whether the system is utility-fed, transformer-fed, or has no explicit source node at all. Boards you've excluded from reports become transparent pass-throughs — their loads still roll up to the nearest reported parent.
+2. **Cable schedule** — per circuit: conductor CSA, length, calculated **voltage drop**, **ampacity** headroom and **conductor temperature**, with column-header tooltips explaining every figure.
+3. **Electrical BOM** — devices grouped and counted, plus **total cable run lengths** per type/size.
+
+**Auto-Size** does the tedious bit: for every cable it drops to the smallest CSA that still passes volt-drop and ampacity, adjusts phase where that helps, and for every protective device it selects the smallest standard rating that clears the downstream load. **Spare breakers are left exactly as you set them** — Auto-Size never touches a spare's rating, because the whole point of a spare is the headroom you chose.
+
+Everything paginates into the Drawings tab as proper sheets when you're done.
+
+---
+
 ## The Drawings Tab
 ### This is where you go from "I have a diagram" to "I have a deliverable".
 
@@ -154,10 +208,12 @@ When solve is clicked, the engine:
 </p>
 
 - **Multi-page A3-landscape PDF pack** with a proper ISO title block on every sheet.
-- **Four page types:**
-  - **Diagram pages** — snapshot of the canvas (either the current viewport via the "Send current view to Drawings" button on the canvas, or the full diagram via the Drawings sidebar). The snapshot is frozen at capture time, so editing the live diagram afterwards doesn't break your already-issued sheets.
+- **Cover / title page** for the front of the pack.
+- **Page types:**
+  - **Diagram pages** — snapshot of *either* canvas, P&ID or electrical (the current viewport via the "Send current view to Drawings" button, or the full diagram via the Drawings sidebar). The snapshot is frozen at capture time, so editing the live diagram afterwards doesn't break your already-issued sheets.
   - **Analysis pages** — paginated hydraulic reports with route preview, chart, KPIs, and the breakdown table.
-  - **BoM pages** — auto-generated bill of materials from the live diagram: equipment grouped by tag, process pipes grouped by material × size with totals, fittings grouped by kind × size with counts.
+  - **Electrical schedule pages** — paginated schedule of loads, cable schedule and Connections tables, with wrapping cells so nothing gets clipped.
+  - **BoM pages** — auto-generated bill of materials from the live diagram for both disciplines: equipment grouped by tag, process pipes grouped by material × size with totals, fittings/tees grouped by kind × size with counts, and electrical devices/cables with total run lengths. Identical items are grouped and listed as "*N* × part" with full names and specs.
   - **Blank annotation pages** — just an ISO frame and a title block. Add text, notes, and arrows on top.
 - **Title block** with project name, drawing number, drawn by, checked, approved, date, scale, revision, sheet *n* of *m*. Every field falls back to the project-wide meta, or you can override per page.
 - **Company logo** embedded once, appears on every sheet.
@@ -226,7 +282,7 @@ src-tauri/target/release/
 ├── pandid.exe                                                  ← raw executable, runnable on its own
 └── bundle/
     └── msi/
-        └── Ash's MEP Playground_2.0.0_x64_en-US.msi             ← installer, ship this
+        └── Ash's MEP Playground_2.1.0_x64_en-US.msi             ← installer, ship this
 ```
 
 Yes, MSI not NSIS. There's an upstream Tauri bug in the NSIS bundler (`nsis_tauri_utils` macro mismatch in tauri-cli 2.11.x) that makes NSIS bundling fail with a `NSISCOMCALL requires 4 parameter(s), passed 8` error. MSI uses an entirely different bundler (WiX), is unaffected, and is arguably the more professional Windows installer format anyway. To re-enable NSIS later, edit `src-tauri/tauri.conf.json` and put `"nsis"` back into `bundle.targets`.
@@ -370,13 +426,14 @@ Tap point, pipe tee, off-page connector.
 
 ## Project File Format
 
-`.pid` files are pretty-printed JSON with a `version` field. Current schema is **v2**. The migration path from v1 → v2 is in `src/io/projectFile.ts`. Old files keep opening as the schema evolves, because forwards-incompatible breakage is what corporate software does to you and I refuse to do it to anyone.
+`.pid` files are pretty-printed JSON with a `version` field. Current schema is **v3** (v3 added the electrical diagram). The full migration path v1 → v2 → v3 is in `src/io/projectFile.ts`. Old files keep opening as the schema evolves, because forwards-incompatible breakage is what corporate software does to you and I refuse to do it to anyone.
 
-A v2 file contains:
+A v3 file contains:
 
 - **Project meta** — title, drawing number, drawn-by / checked / approved, revision, date, scale, etc.
 - **Fluids** — your project fluid library
-- **Diagram** — the full graph: nodes, edges, every parameter
+- **Diagram** — the full P&ID graph: nodes, edges, every parameter
+- **Electrical** — the full single-line diagram: boards, devices, cables, every rating
 - **Analyses** — saved analysis configurations and last results
 - **Drawings** — every page in your drawing pack with annotations, overrides, page-level title block overrides
 - **Company logo** — embedded as a data URL
@@ -409,7 +466,9 @@ If the scope grows, it grows because I want it to, not because a roadmap committ
 ```
 src/
   components/   UI: Toolbar, Palette, Canvas, Inspector, Analysis, Drawings
-  symbols/      All 133 ISO-style symbols + the registry + line styles
+  symbols/      All 133 ISO-style P&ID symbols + the registry + line styles
+  electrical/   The whole electrical discipline: symbols, store, canvas,
+                inspector, and analysis (load/cable schedules, BOM, auto-size)
   engine/       Pure-TS hydraulics engine. No React. No DOM. No JSX.
   presets/      Curated common values: fluids, pumps, pipes, valves, filters
   store/        Zustand stores: diagram, project, drawings, UI
@@ -489,7 +548,7 @@ Used on real projects. Trusted more than licence servers. Maintained out of pure
 
 If it breaks, it's because **I** broke it — not because a vendor flipped a switch in a config file on a server in Massachusetts.
 
-The codebase is roughly **16,000 lines of TypeScript** + about **300 lines of Rust**. Type-checked with `tsc --strict`. Linted with ESLint. Builds in a minute. Boots in under a second. Compiles to a ~12 MB executable.
+The codebase is roughly **30,000 lines of TypeScript** + about **300 lines of Rust** — it roughly doubled when the electrical discipline landed. Type-checked with `tsc --strict`. Linted with ESLint. Builds in a minute. Boots in under a second. Compiles to a ~12 MB executable.
 
 For comparison, the Aveva E3D installer is 4.7 GB and takes about twenty minutes to install on an SSD. It also can't draw a centrifugal pump until you've created a database and configured a project catalogue. I'm not making this up.
 

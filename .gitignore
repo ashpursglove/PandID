@@ -12,3 +12,7 @@ src-tauri/gen
 .DS_Store
 *.log
 *.tsbuildinfo
+
+# Cursor / VS Code workspace save files
+.cursor/
+*.code-workspace

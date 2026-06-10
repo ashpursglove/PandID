@@ -110,6 +110,10 @@ export const SymbolNode = memo(function SymbolNode({
             id={port.id}
             type="source"
             position={SIDE_TO_POSITION[r.side]}
+            className={cn(
+              "transition-opacity",
+              selected ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+            )}
             style={{
               ...handleOffset(r.side, r.position, size.width, size.height),
               width: 8,

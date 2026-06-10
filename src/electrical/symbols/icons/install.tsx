@@ -1,5 +1,5 @@
 import type { ElecSymbolIconProps } from "@/electrical/types";
-import { ElecSvg, FanBlades, StubBottom, StubTop } from "./base";
+import { ElecSvg, FanBlades, SpareCaption, StubBottom, StubTop } from "./base";
 
 function CenterText({ children, size = 11, y = 36 }: { children: string; size?: number; y?: number }) {
   return (
@@ -55,6 +55,20 @@ export function Mpcb(p: ElecSymbolIconProps) {
       <rect x={20} y={20} width={24} height={24} rx={2} />
       <CenterText size={13}>M</CenterText>
       <StubBottom />
+    </ElecSvg>
+  );
+}
+
+/** Spare (reserved) MPCB — line-side only, no outgoing connection. */
+export function MpcbSpare(p: ElecSymbolIconProps) {
+  return (
+    <ElecSvg {...p}>
+      <StubTop />
+      <rect x={20} y={18} width={24} height={22} rx={2} />
+      <CenterText size={12} y={33}>
+        M
+      </CenterText>
+      <SpareCaption />
     </ElecSvg>
   );
 }

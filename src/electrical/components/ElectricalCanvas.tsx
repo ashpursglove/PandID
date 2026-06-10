@@ -179,18 +179,32 @@ export function ElectricalCanvas({ className }: CanvasProps) {
 
   const defaultEdgeOptions = useMemo(() => ({ type: "feeder" as const }), []);
 
+  // Symbol node wrappers are made pointer-events:none so their (mostly empty)
+  // 64×64 boxes don't steal clicks from neighbours bolted right beside them on a
+  // board. Each symbol re-enables a centred hit area + its handles internally.
+  // Set inline so it wins over any stylesheet and works regardless of theme.
+  const rfNodes = useMemo(
+    () =>
+      nodes.map((n) =>
+        n.type === "symbol"
+          ? { ...n, style: { ...n.style, pointerEvents: "none" as const } }
+          : n,
+      ),
+    [nodes],
+  );
+
   return (
     <div
       ref={wrapperRef}
       className={cn(
-        "relative h-full w-full bg-[var(--color-canvas)]",
+        "elec-flow relative h-full w-full bg-[var(--color-canvas)]",
         className,
       )}
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
       <ReactFlow
-        nodes={nodes}
+        nodes={rfNodes}
         edges={edges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}

@@ -11,6 +11,7 @@ export function ElecSvg({
   width,
   height,
   selected,
+  color,
   children,
   viewBox = "0 0 64 64",
 }: ElecSymbolIconProps & { children: ReactNode; viewBox?: string }) {
@@ -20,11 +21,16 @@ export function ElecSvg({
       width={width}
       height={height}
       className={selected ? "text-sky-300" : "text-zinc-200"}
+      // Inline colour (single-phase green) wins over the Tailwind text class.
+      style={color ? { color } : undefined}
       fill="none"
       stroke="currentColor"
       strokeWidth={1.6}
       strokeLinejoin="round"
       strokeLinecap="round"
+      // Let glyphs (e.g. the rotated "SPARE" caption) extend past the 64-grid
+      // viewBox instead of being clipped at its edge.
+      overflow="visible"
     >
       {children}
     </svg>
@@ -39,6 +45,32 @@ export function StubTop() {
 /** Bottom terminal stub (load side). */
 export function StubBottom() {
   return <line x1={32} y1={48} x2={32} y2={62} />;
+}
+
+/**
+ * "SPARE" caption sat where the load-side stub would be. Used by spare device
+ * glyphs, which deliberately have a line-side stub but no outgoing connection —
+ * the missing bottom stub plus this caption read as "reserved, nothing wired".
+ */
+export function SpareCaption() {
+  // Rotated 90° counter-clockwise so it reads vertically in the free space below
+  // the device — keeps it inside the glyph's width so tightly-packed spares on a
+  // board don't have their captions overlap.
+  return (
+    <text
+      x={32}
+      y={58}
+      fontSize={8}
+      fill="currentColor"
+      stroke="none"
+      textAnchor="middle"
+      fontFamily="Inter, Helvetica, Arial, sans-serif"
+      letterSpacing={0.5}
+      transform="rotate(-90 32 58)"
+    >
+      SPARE
+    </text>
+  );
 }
 
 /**

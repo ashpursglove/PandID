@@ -51,7 +51,9 @@ export const PAGE_W = 420;
 export const PAGE_H = 297;
 export const MARGIN = 8;
 export const TITLE_W = 180;
-export const TITLE_H = 56;
+// Kept compact so the drawing area (DRAW_H below) gets the extra height — the
+// block only needs room for two label rows plus the company/title/logo strip.
+export const TITLE_H = 42;
 
 export const DRAW_X = MARGIN;
 export const DRAW_Y = MARGIN;
@@ -113,17 +115,21 @@ export function renderFrame(): string {
     ticks.push(`<line x1="${PAGE_W - MARGIN}" y1="${y}" x2="${PAGE_W - MARGIN - 3}" y2="${y}" stroke="black" stroke-width="${FRAME_STROKE}" />`);
   }
 
+  // Zone numbers/letters live in the ~4 mm band between the outer (MARGIN/2)
+  // and inner (MARGIN) frame lines. Baselines are picked to centre the glyph
+  // in that band so they never sit on — or spill past — either border line.
+  const FRAME_LABEL_FONT = 2.8;
   const labels: string[] = [];
   for (let i = 0; i < COLS; i++) {
     const x = DRAW_X + i * colW + colW / 2;
-    labels.push(textAt(x, MARGIN - 2.2, `${i + 1}`, 3, "middle"));
-    labels.push(textAt(x, PAGE_H - MARGIN + 4.5, `${i + 1}`, 3, "middle"));
+    labels.push(textAt(x, MARGIN - 1.1, `${i + 1}`, FRAME_LABEL_FONT, "middle"));
+    labels.push(textAt(x, PAGE_H - MARGIN + 2.6, `${i + 1}`, FRAME_LABEL_FONT, "middle"));
   }
   for (let i = 0; i < ROWS; i++) {
     const y = MARGIN + i * rowH + rowH / 2;
     const letter = String.fromCharCode("A".charCodeAt(0) + i);
-    labels.push(textAt(MARGIN - 2.5, y + 1, letter, 3, "middle"));
-    labels.push(textAt(PAGE_W - MARGIN + 2.5, y + 1, letter, 3, "middle"));
+    labels.push(textAt(MARGIN - 2, y + 1, letter, FRAME_LABEL_FONT, "middle"));
+    labels.push(textAt(PAGE_W - MARGIN + 2, y + 1, letter, FRAME_LABEL_FONT, "middle"));
   }
 
   return `<g>
@@ -181,14 +187,10 @@ export function renderTitleBlock(
     `<rect x="${TITLE_X}" y="${TITLE_Y + 2 * rowH}" width="${TITLE_W}" height="${rowH * 2}" fill="white" stroke="black" stroke-width="${FRAME_STROKE}" />`,
   );
 
-  // Bottom section is `rowH*2 = 28 mm` tall and currently shared between
-  // the project title, drawing number, sheet info, and an optional logo on
-  // the right. Stacking from the top:
-  //   y+ 4   COMPANY label (tiny)
-  //   y+ 8   company-name value (medium, bold)
-  //   y+13   TITLE label (tiny)
-  //   y+18   project-title value (large, bold)
-  //   y+23   drawing-number value (small)
+  // Bottom section is `rowH*2` tall and shared between the project title,
+  // drawing number, sheet info, and an optional logo on the right. Text is
+  // stacked tightly from the top (COMPANY label/value, TITLE label/value,
+  // drawing number) to keep the whole block compact.
   //
   // The right-hand logo box keeps its full bottom-section height; the text
   // column above is sized so it never crosses into the logo zone.
@@ -198,12 +200,12 @@ export function renderTitleBlock(
   const textColW = Math.max(20, textRightCap - (TITLE_X + 2));
   const company = (meta.companyName ?? "").trim();
   rows.push(
-    textAt(TITLE_X + 2, bottomY + 4, "COMPANY", 2.2, "start"),
+    textAt(TITLE_X + 2, bottomY + 3, "COMPANY", 2.2, "start"),
   );
   rows.push(
     textAt(
       TITLE_X + 2,
-      bottomY + 8,
+      bottomY + 6.8,
       truncateForWidth(company || "—", 3.8, textColW),
       3.8,
       "start",
@@ -211,12 +213,12 @@ export function renderTitleBlock(
     ),
   );
   rows.push(
-    textAt(TITLE_X + 2, bottomY + 13, "TITLE", 2.2, "start"),
+    textAt(TITLE_X + 2, bottomY + 10.8, "TITLE", 2.2, "start"),
   );
   rows.push(
     textAt(
       TITLE_X + 2,
-      bottomY + 18,
+      bottomY + 15,
       truncateForWidth(meta.title || "Untitled", 4.2, textColW),
       4.2,
       "start",
@@ -226,7 +228,7 @@ export function renderTitleBlock(
   rows.push(
     textAt(
       TITLE_X + 2,
-      bottomY + 23,
+      bottomY + 19,
       truncateForWidth(meta.drawingNumber || "", 3.0, textColW),
       3.0,
       "start",
